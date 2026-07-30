@@ -1,0 +1,33 @@
+# SPEC 要求 Python 3.12+ / uv；requires-python 放寬到 3.11 是因為
+# 初版程式碼在 3.11 環境開發驗證過，語法完全相容 3.12。
+[project]
+name = "txolab"
+version = "0.1.0"
+description = "TXO 台指選擇權研究管線：定價 → 資料 → 隱波監控 → 回測 → paper trade"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "hypothesis>=6",
+    "ruff>=0.4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/txolab"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

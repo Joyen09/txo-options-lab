@@ -1,0 +1,26 @@
+# TXO 賣方保證金 A/B/C 值 — 期交所不定期公告調整，一律走 config 不寫死
+#
+# ⚠️ 下方數值為【佔位值，尚未查證】。Phase 0 收工條件之一：
+#    到 https://www.taifex.com.tw/cht/5/indexMarging 抄現行公告值，
+#    填入後更新 verified_date 與 source。
+#    （本檔由沙盒環境產生，該環境連不到期交所，故留佔位。）
+
+[txo]
+verified_date = ""        # 查證日期，未填 = 未查證，程式應拒絕跑回測
+source = "https://www.taifex.com.tw/cht/5/indexMarging"
+
+# 三檔：結算保證金 < 維持保證金 < 原始保證金
+[txo.a_value]
+clearing = 0
+maintenance = 0
+initial = 0
+
+[txo.b_value]
+clearing = 0
+maintenance = 0
+initial = 0
+
+[txo.c_value]
+clearing = 0
+maintenance = 0
+initial = 0

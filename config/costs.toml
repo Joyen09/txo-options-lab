@@ -1,0 +1,20 @@
+# 交易成本參數 — 開工時到期交所費率表核對現值
+# https://www.taifex.com.tw/cht/4/feeSchedules
+
+[tax]
+# 期交稅：選擇權以「權利金金額」課徵，買賣雙邊。
+# 0.001 (千分之一) 為常見稅率，⚠️ 仍須對費率表確認後把 verified_date 填上。
+options_rate = 0.001
+verified_date = ""
+
+[fee]
+# 期貨商手續費為議定價；預設抓保守值 NT$25/口/單邊
+per_lot_twd = 25
+
+[slippage]
+# 回測成交假設：收盤/結算價 ± N 個 tick (日行情檔沒有 bid/ask，這是已知限制)
+ticks = 2
+
+[risk]
+# 保證金佔用上限 (margin_used / equity)；賣方爆倉幾乎都是保證金管理死的
+max_margin_utilization = 0.30
