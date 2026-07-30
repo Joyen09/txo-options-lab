@@ -2,8 +2,10 @@
 from decimal import Decimal
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
+from tests.fixtures import manual_fixtures as fx
 from txolab.margin.engine import (
     deep_otm_multiplier,
     otm_value,
@@ -11,9 +13,6 @@ from txolab.margin.engine import (
     strangle_margin,
     transaction_cost,
 )
-
-from tests.fixtures import manual_fixtures as fx
-
 
 # ---------------- M-1 官方公式範例 (exact) ----------------
 
@@ -55,8 +54,8 @@ def test_m2_multiplier_is_step_function(points):
 
 def test_strangle_margin_le_sum_of_singles():
     idx, a, b, c = 22000, 96000, 48000, 5000
-    call_k, call_prem = 22400, Decimal("30")
-    put_k, put_prem = 21600, Decimal("42")
+    call_k, call_prem = 22400, Decimal(30)
+    put_k, put_prem = 21600, Decimal(42)
     m_str = strangle_margin(idx, call_k, call_prem, put_k, put_prem, a, b, c)
     m_call = single_seller_margin("C", idx, call_k, call_prem, a, b)
     m_put = single_seller_margin("P", idx, put_k, put_prem, a, b)

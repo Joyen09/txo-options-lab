@@ -30,7 +30,7 @@ class Greeks:
 
 
 def greeks(cp: str, f: float, k: float, r: float, sigma: float, t: float) -> Greeks:
-    d1, d2 = black76.d1_d2(f, k, sigma, t)
+    d1, _ = black76.d1_d2(f, k, sigma, t)
     disc = math.exp(-r * t)
     pdf1 = norm.pdf(d1)
     sqrt_t = math.sqrt(t)

@@ -4,11 +4,9 @@ from decimal import Decimal
 
 import pytest
 
+from tests.fixtures import manual_fixtures as fx
 from txolab.contracts import calendar as cal
 from txolab.contracts import series, settlement, spec
-
-from tests.fixtures import manual_fixtures as fx
-
 
 # ---------------- C-1 Tick 表 ----------------
 

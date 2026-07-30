@@ -13,8 +13,8 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 WEDNESDAY, FRIDAY = 2, 4
 QUARTER_MONTHS = (3, 6, 9, 12)

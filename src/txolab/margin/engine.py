@@ -16,11 +16,10 @@ A/B/C 由期交所不定期公告 (config/margin.toml，附生效日期)，本�
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Union
 
 from ..contracts.spec import MULTIPLIER
 
-Num = Union[int, float, str, Decimal]
+Num = int | float | str | Decimal
 
 
 def _dec(x: Num) -> Decimal:
@@ -93,5 +92,5 @@ def transaction_cost(premium_points: Num, tax_rate: Num, fee_per_lot: Num,
     if lots <= 0:
         raise ValueError(f"口數必須為正: {lots}")
     premium_value = _dec(premium_points) * MULTIPLIER * lots
-    tax = (premium_value * _dec(tax_rate)).quantize(Decimal("1"))
+    tax = (premium_value * _dec(tax_rate)).quantize(Decimal(1))
     return tax + _dec(fee_per_lot) * lots

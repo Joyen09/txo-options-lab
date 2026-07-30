@@ -8,8 +8,8 @@
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Iterable, Sequence
 
 from .spec import MULTIPLIER
 

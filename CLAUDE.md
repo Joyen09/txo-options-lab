@@ -29,10 +29,17 @@ SPEC 寫 LINE Messaging API；實際上 tw-stock-strategy-framework 現行通知
 **Discord webhook**（Telegram 備援，LINE Notify 已於 2025-03-31 停服）。
 M4/M7 的通知一律沿用 Discord webhook 模式，環境變數 `DISCORD_WEBHOOK_URL`。
 
-## 目前進度（初版打包時的狀態）
+## 目前進度
 - ✅ Phase 0 部分：scaffold、fixtures 落地、config 骨架（A/B/C 為佔位，**未查證**）
 - ✅ Phase 1（M1 定價）：P-1/P-2/P-3 綠燈，Greeks closed form vs 有限差分 1e-6 對照
 - ✅ Phase 2（M2 合約）：C-1～C-5 綠燈，含假日順延與 active_expiries
 - ✅ M5 保證金公式：M-1/M-2 綠燈（A/B/C 現值待填）
-- ⬜ Phase 0 剩餘：上期交所核對 SPEC 第 2 節 facts、填 config 現值（沙盒連不到期交所）
-- ⬜ Phase 3+：資料層（要先手動放 data/samples 真實行情檔）、隱波、回測、paper trade
+- ✅ Phase 3（M3 資料層）程式面：下載器 + fail-loud parser + sqlite + chain
+  ——**parser 欄名未經真實檔驗證**（開發環境連不到期交所），首次 VM fetch 即驗證
+- ✅ Phase 4（M4 隱波監控）：smile/ATM IV/term structure/IV rank/25Δ skew、
+  事件偵測 → Discord（`txolab monitor`，config/monitor.toml 調門檻）
+  ——VIX 同向性 sanity 對照未實作（待真實資料）
+- ✅ VM 部署：deploy/（setup_vm.sh + systemd timer 週一~五 15:30 Asia/Taipei）
+- ⬜ Phase 0 剩餘：VM 上核對 SPEC 第 2 節 facts、填 config/margin.toml 現值
+- ⬜ Phase 3 剩餘：真實檔驗證 parser、週五契約到期代碼、掛牌清單回驗 active_expiries
+- ⬜ Phase 5（回測，criteria 先寫死不可回改）→ Phase 6（paper trade，僅模擬）

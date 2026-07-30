@@ -2,14 +2,13 @@
 import math
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
+from tests.fixtures import manual_fixtures as fx
 from txolab.pricing import black76, bs
 from txolab.pricing.greeks import finite_difference, greeks
 from txolab.pricing.iv import implied_vol
-
-from tests.fixtures import manual_fixtures as fx
-
 
 # ---------------- P-1 / P-2 golden fixtures ----------------
 
