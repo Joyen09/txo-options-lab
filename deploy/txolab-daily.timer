@@ -1,0 +1,14 @@
+# systemd 計時器：週一到週五 15:30（台北時間）跑每日行情 + 隱波監控。
+# 一般時段 13:45 收盤，期交所每日行情檔通常收盤後陸續上架——15:30 抓最穩；
+# 若當天檔案還沒上架，fetch 會失敗退出，Persistent=false 不補跑（隔天再一起抓：
+# 手動補：txolab fetch --date YYYY-MM-DD）。
+# 安裝見 txolab-daily.service 開頭註解。
+[Unit]
+Description=Run TXO daily fetch + IV monitor (Mon-Fri 15:30 Taipei)
+
+[Timer]
+OnCalendar=Mon..Fri 15:30 Asia/Taipei
+Persistent=false
+
+[Install]
+WantedBy=timers.target

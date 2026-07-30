@@ -1,0 +1,25 @@
+# systemd 服務：每個交易日收盤後抓行情 + 隱波監控 + Discord 通知（跑一次就退出）。
+# 由 txolab-daily.timer 觸發。
+# 安裝：
+#   sed "s/YOUR_USER/$(whoami)/g" deploy/txolab-daily.service | sudo tee /etc/systemd/system/txolab-daily.service
+#   sed "s/YOUR_USER/$(whoami)/g" deploy/txolab-daily.timer   | sudo tee /etc/systemd/system/txolab-daily.timer
+#   sudo systemctl daemon-reload && sudo systemctl enable --now txolab-daily.timer
+[Unit]
+Description=TXO daily fetch + IV monitor -> Discord
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=YOUR_USER
+WorkingDirectory=/home/YOUR_USER/txo
+EnvironmentFile=-/home/YOUR_USER/txo/.env
+# 先抓當日行情（下載+驗證+落地），成功才跑監控；失敗時 systemd 會記錄非零退出
+ExecStart=/home/YOUR_USER/txo/.venv/bin/txolab fetch
+ExecStart=/home/YOUR_USER/txo/.venv/bin/txolab monitor
+
+MemoryMax=400M
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

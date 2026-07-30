@@ -1,0 +1,12 @@
+# M4 隱波監控參數（門檻可調；調整不影響回測 criteria——那份寫死在 criteria.py）
+
+[pricing]
+# 台幣短率近似值：只影響折現項，TXO 短天期影響極小（SPEC M1 註記）
+r = 0.015
+
+[monitor]
+window = 60          # IV rank / percentile 回看交易日數
+rank_high = 80.0     # rank 高檔門檻（賣方環境，但也是波動率事件警戒區）
+rank_low = 20.0      # rank 低檔門檻（賣權利金變薄）
+jump_vol_pts = 0.03  # 近月 ATM IV 單日跳升門檻（vol 百分點，0.03 = 3 pts）
+daily_summary = true # true = 每天都送 Discord 摘要（確認管線活著）；false = 只送事件
