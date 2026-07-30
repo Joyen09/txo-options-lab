@@ -7,3 +7,5 @@ __pycache__/
 *.egg-info/
 .env
 data/db/
+# lockfile 由 VM 上的 deploy/setup_vm.sh (uv sync) 生成；不經 API 轉錄以免雜湊出錯
+uv.lock
