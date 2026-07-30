@@ -7,10 +7,10 @@
   - 必要欄位用「名稱」尋找（容許欄序不同、容許多出欄位），
     缺任何一欄 → raise ParserError 並列出實際表頭，絕不用位置猜
   - 數值空欄/「-」視為 None；解析失敗整列報錯（附行號與原始內容）
-  - 到期代碼只認得已知格式（YYYYMM、YYYYMMWn），其餘 fail loud
+  - 到期代碼只認得已知格式（YYYYMM、YYYYMMWn、YYYYMMFn），其餘 fail loud
 
-第一次在 VM 拿到真實檔案時：`txolab fetch --date ...` 會下載 + 驗證 + 落地；
-驗證不過就照錯誤訊息修 COLUMN_ALIASES / 到期代碼規則（真實樣本已存 data/samples/）。
+2026-07-30 VM 首次真實檔驗證：欄名全數吻合（TXO 6,694 列解析成功）；
+週五契約代碼實為 'YYYYMMFn'，已據實擴充 expiry_code_to_date。
 """
 from __future__ import annotations
 
@@ -207,18 +207,24 @@ def expiry_code_to_date(code: str,
                         holidays: frozenset[dt.date] = frozenset()) -> dt.date:
     """到期代碼 → 到期日。
 
-    已知格式（社群慣例，待真實樣本回驗）：
+    格式（YYYYMM 與 Wn 為社群慣例；**Fn 已由 2026-07-30 VM 真實行情檔驗證**，
+    樣本 data/samples/opt_20260730.csv 出現 '202607F5' = 2026 年 7 月第 5 個
+    星期五 7/31，與當日存續週五契約一致）：
       'YYYYMM'    月/季契約 → 該月第 3 個星期三（假日順延）
       'YYYYMMWn'  週三週契約 → 該月第 n 個星期三（假日順延）
-    其餘（含可能的週五契約代碼）一律 fail loud——拿到真實樣本看到實際代碼
-    再來擴充，不猜。
+      'YYYYMMFn'  週五週契約 → 該月第 n 個星期五（假日順延）
+    其餘一律 fail loud——看到真實樣本的實際代碼再擴充，不猜。
     """
     code = code.strip()
     if len(code) == 6 and code.isdigit():
         return monthly_expiry(int(code[:4]), int(code[4:6]), holidays)
-    if len(code) == 8 and code[:6].isdigit() and code[6].upper() == "W" and code[7].isdigit():
+    if len(code) == 8 and code[:6].isdigit() and code[7].isdigit():
         y, m, n = int(code[:4]), int(code[4:6]), int(code[7])
-        return next_business_day(nth_weekday(y, m, WEDNESDAY, n), holidays)
+        kind = code[6].upper()
+        if kind == "W":
+            return next_business_day(nth_weekday(y, m, WEDNESDAY, n), holidays)
+        if kind == "F":
+            return next_business_day(nth_weekday(y, m, FRIDAY, n), holidays)
     raise ParserError(
         f"未知到期代碼格式: {code!r}——請拿 data/samples/ 真實檔案核對後擴充 "
-        "expiry_code_to_date（可能是週五契約或新規則）")
+        "expiry_code_to_date")

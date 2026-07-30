@@ -1,8 +1,8 @@
 """M3 資料層：parser 嚴格驗證、到期代碼、store 冪等、chain 組裝與 forward 對齊。
 
 ⚠️ 這裡的 CSV 是「合成樣本」——依公開文件的已知欄名產生，用來測 parser 的
-機制（欄名尋找、防呆、型別轉換）。格式是否與期交所現行檔案吻合，
-必須在 VM 上用 `txolab fetch` 對真實檔案驗證（鐵律 6）；吻合前不可跑回測。
+機制（欄名尋找、防呆、型別轉換）。2026-07-30 已在 VM 上用真實檔案驗證：
+欄名全數吻合；週五契約代碼 'YYYYMMFn' 依真實樣本擴充（data/samples/）。
 """
 import datetime as dt
 
@@ -88,11 +88,16 @@ def test_expiry_code_monthly_and_weekly():
     assert expiry_code_to_date("202607") == dt.date(2026, 7, 15)   # 第 3 個星期三 (C-3)
     assert expiry_code_to_date("202607W1") == dt.date(2026, 7, 1)  # 第 1 個星期三
     assert expiry_code_to_date("202607W4") == dt.date(2026, 7, 22)
+    # Fn = 第 n 個星期五：'202607F5' 出自 2026-07-30 VM 真實行情檔（週五契約）
+    assert expiry_code_to_date("202607F5") == dt.date(2026, 7, 31)
+    assert expiry_code_to_date("202608F1") == dt.date(2026, 8, 7)
 
 
 def test_expiry_code_unknown_fails_loud():
     with pytest.raises(ParserError, match="未知到期代碼"):
-        expiry_code_to_date("202607F2")  # 可能的週五代碼——拿到真實樣本前不猜
+        expiry_code_to_date("202607X2")  # 未知型別字母——不猜
+    with pytest.raises(ParserError, match="未知到期代碼"):
+        expiry_code_to_date("202608/202609")  # 價差委託代碼不是到期日
 
 
 # ---------------- store：冪等 ----------------
