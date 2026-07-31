@@ -81,6 +81,17 @@ def strangle_margin(index: Num, call_strike: Num, call_premium: Num,
     return max(m_call, m_put) + weaker_premium + _dec(c)
 
 
+def vertical_spread_margin(short_strike: Num, long_strike: Num) -> Decimal:
+    """垂直價差（買方到期日 >= 賣方）保證金 = 履約價差 × 50。
+
+    收租價差的最大虧損 = (履約價差 − 淨收權利金) × 50，期交所價差部位
+    保證金即以履約價差全額計；淨付權利金的價差（debit spread）風險已付清，
+    保證金為 0。iron condor = call 邊 + put 邊兩組價差各計一份（保守：
+    到期只有一邊可能虧，部分期貨商只收單邊，本引擎收兩邊、寧高勿低）。
+    """
+    return abs(_dec(short_strike) - _dec(long_strike)) * MULTIPLIER
+
+
 # ---------------- 交易成本 ----------------
 
 def transaction_cost(premium_points: Num, tax_rate: Num, fee_per_lot: Num,
