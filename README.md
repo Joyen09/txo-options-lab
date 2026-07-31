@@ -16,11 +16,12 @@ uv run pytest                # 全部測試需綠燈
 |---|---|---|
 | `pricing/` | Black-76（預設）、Black-Scholes（官方計算器對照）、Greeks（closed form + 有限差分互驗）、IV solver（無解回 None+原因） | fixtures P-1/P-2 + hypothesis 性質測試 P-3 |
 | `contracts/` | tick 表、點值、漲跌幅、月/週三/週五到期與加掛規則（含「每月第一個星期三不加掛」）、假日順延、履約價階梯（±3% 細密序列）、最後結算價與到期損益 | fixtures C-1～C-5 |
-| `margin/` | 賣方保證金（A/B 取大、深度價外 ×1.2/×1.5 加收）、跨勒式保證金、期交稅+手續費 | fixtures M-1/M-2 |
-| `data/` | 期交所每日行情下載器（禮貌 rate limit）、嚴格表頭驗證 parser、sqlite 落地（冪等）、option chain 組裝（TX forward 對齊） | 合成樣本測試；**真實檔驗證待 VM 首跑** |
+| `margin/` | 賣方保證金（A/B 取大、深度價外 ×1.2/×1.5 加收）、跨勒式與垂直價差保證金、期交稅+手續費 | fixtures M-1/M-2 |
+| `data/` | 期交所每日行情下載器（禮貌 rate limit）、嚴格表頭驗證 parser、sqlite 落地（冪等）、option chain 組裝（TX forward 對齊） | 2026-07-30 真實檔驗證通過 |
 | `vol/` | smile / ATM IV（forward 內插）/ term structure / IV rank・percentile / 25Δ skew、事件偵測（rank 門檻・倒掛・單日跳升） | 合成 chain 還原已知 σ |
 | `notify.py` | Discord webhook（沿用 tw-stock 模式；分段、no-throw、dry-run） | 單元測試 |
-| `cli.py` | `txolab fetch / monitor / chain / notify-test` | 冒煙測試 |
+| `backtest/` | **criteria.py（pre-registered，寫死不可回改）**、逐日重放引擎（結算價±滑價、稅費全含、保證金逐日重算與 30% 佔用 sizing、到期前強制平倉、無隨機性）、三基準策略（put 信用價差 / iron condor / short strangle） | 機制測試綠燈；**正式報告待 ≥1 年真實資料** |
+| `cli.py` | `txolab fetch / backfill / monitor / chain / backtest / notify-test` | 冒煙測試 |
 
 ## 在 VM 上跑（每日收盤後自動監控 → Discord）
 
@@ -35,11 +36,12 @@ bash deploy/setup_vm.sh        # 安裝 + .env 樣板
 
 ## 接下來（按 SPEC Phase 順序）
 
-1. **Phase 0 收尾（VM 首跑時做）**：核對期交所現行規則、抄 A/B/C 現值進
-   `config/margin.toml`、確認期交稅率——**config 目前是佔位值，填完才可跑回測**
-2. **Phase 3 收尾**：VM 上 `txolab fetch` 用真實檔案驗證 parser（鐵律 6 防呆
-   會嚴格把關；不符會列出實際表頭）；確認週五契約的到期代碼格式
-3. Phase 5 回測（criteria 先寫死）→ Phase 6 paper trade
+1. **Phase 5 正式報告**：VM 上回補歷史資料再跑回測——
+   `txolab backfill 2024-08-01`（約 2 年，禮貌限速約 50 分鐘，建議 nohup）
+   → `txolab backtest`（自動含滑價×2 敏感度與 criteria PASS/FAIL 判定）
+2. **Phase 6 paper trade（僅模擬）**：前提是至少一個策略通過 criteria；
+   Shioaji `simulation=True` 寫死（鐵律 1：本 repo 禁止真實下單）
+3. 掛牌清單回驗 active_expiries、costs.toml 稅率查證、VIX 同向性對照
 
 ## 與 SPEC 的差異（誠實記錄）
 
@@ -47,11 +49,13 @@ bash deploy/setup_vm.sh        # 安裝 + .env 樣板
   tw-stock 系統現行通道就是 Discord）
 - Python：SPEC 訂 3.12+，初版在 3.11 開發驗證（語法相容），`requires-python >= 3.11`
 - 開發環境連不到期交所：SPEC 第 2 節 facts 沿用規格書內 2026-07-30 的查證結果，
-  **Phase 0 收尾時必須重新上網核對**
-- M3 parser 的欄名取自公開文件與社群慣例，「不是」照本 repo 自抓的真實樣本寫的
-  （鐵律 6 的已知妥協）：因此 parser 全面 fail-loud——欄位用名稱找、缺欄整批拒收、
-  未知到期代碼直接報錯，**首次 VM fetch 即真實格式驗證**，原始檔自動留存 data/samples/
+  **Phase 0 收尾時必須重新上網核對**（已於 2026-07-30 完成：A/B/C 現值入 config）
+- M3 parser 欄名原取自公開文件；2026-07-30 已用 VM 真實檔驗證全數吻合，
+  週五契約代碼 'YYYYMMFn' 依真實樣本擴充（原始檔存 data/samples/）
 - 週選 forward：TX 無同到期週期貨，用「到期不早於該週選的最近月 TX」近似
   （帶少量基差誤差；更精確可日後改 put-call parity 反推 implied forward）
+- 回測保證金：指數以最近月 TX 結算價近似（非 TAIEX 現貨）；iron condor 收兩邊
+  價差保證金（部分期貨商只收單邊，本引擎寧高勿低）；到期前強制平倉故不依賴
+  最後結算價資料源
 - VIX 同向性 sanity 對照（SPEC M4 DoD 之一）尚未實作——需要官方波動率指數
   歷史檔，留待 VM 上有真實資料後補
