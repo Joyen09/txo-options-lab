@@ -198,7 +198,7 @@ def _engine_config(slippage_mult: int = 1):
         slippage_ticks=costs["slippage"]["ticks"] * slippage_mult,
         tax_rate=Decimal(str(costs["tax"]["options_rate"])),
         fee_per_lot=Decimal(str(costs["fee"]["per_lot_twd"])),
-        util_cap=costs["risk"]["max_margin_utilization"],
+        util_cap=bt["sizing"]["target_utilization"],
         max_lots=bt["sizing"]["max_lots"],
         min_entry_dte=bt["entry"]["min_days_to_expiry"],
         force_close_dte=bt["exit"]["force_close_days_to_expiry"],
@@ -213,8 +213,8 @@ def _strategies(bt: dict):
     from .backtest.strategies import IronCondor, ShortStrangle, VerticalSpread
     v, c, s = bt["vertical_spread"], bt["iron_condor"], bt["short_strangle"]
     return [
-        VerticalSpread(v["short_delta"], v["wing_points"], v["stop_credit_mult"]),
-        IronCondor(c["short_delta"], c["wing_points"], c["stop_credit_mult"]),
+        VerticalSpread(v["short_delta"], v["wing_delta"], v["stop_credit_mult"]),
+        IronCondor(c["short_delta"], c["wing_delta"], c["stop_credit_mult"]),
         ShortStrangle(s["short_delta"], s["stop_credit_mult"], s["stop_abs_delta"]),
     ]
 
