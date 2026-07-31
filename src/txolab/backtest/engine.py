@@ -28,7 +28,7 @@ from ..margin.engine import (
     vertical_spread_margin,
 )
 from ..pricing.greeks import greeks
-from ..vol.surface import build_smile
+from ..vol.surface import build_smile_cached
 
 MarkKey = tuple[str, float, str]  # (expiry_code, strike, cp)
 
@@ -196,7 +196,7 @@ def _short_deltas(pos: _Position, chain: Chain, r: float) -> list[float]:
                if s.expiry_code == pos.signal.legs[0].expiry_code), None)
     if sl is None:
         return []
-    sm = build_smile(sl, r)
+    sm = build_smile_cached(sl, r)
     iv_by = {(p.strike, p.cp): p.iv for p in sm.points if p.iv is not None}
     out = []
     for leg in pos.signal.legs:
