@@ -1,0 +1,26 @@
+# M6 回測策略參數——這裡是「策略設定」，可以調；
+# 「通過標準」在 src/txolab/backtest/criteria.py，寫死不可回改（鐵律 2）。
+
+[entry]
+min_days_to_expiry = 15   # 進場時近月至少剩幾個日曆日（太短 gamma 風險爆炸）
+
+[exit]
+force_close_days_to_expiry = 2  # 到期前 N 日強制平倉（結算週不賭，也免掉最後結算價依賴）
+
+[sizing]
+max_lots = 20             # 口數硬上限（實際口數 = min(此值, 30% 權益 / 每口保證金)）
+
+[vertical_spread]
+short_delta = 0.25        # 賣方腳目標 |delta|
+wing_points = 400         # 保險腳往價外幾點
+stop_credit_mult = 2.0    # 回補成本 >= 進場權利金 × 此倍數 → 停損
+
+[iron_condor]
+short_delta = 0.20
+wing_points = 400
+stop_credit_mult = 2.0
+
+[short_strangle]
+short_delta = 0.25
+stop_credit_mult = 2.0
+stop_abs_delta = 0.45     # 任一賣方腳 |delta| 觸此值 → 強制停損（SPEC 要求）
