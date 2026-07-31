@@ -96,7 +96,7 @@ def test_strangle_theta_decay_and_force_close(tmp_path):
     t = res.trades[0]
     assert t.reason == "expiry_week" and t.open_date == dt.date(2026, 7, 20)
     assert t.close_date == dt.date(2026, 8, 17)
-    assert t.net_twd > 0                     # 盤整市：收足時間價值，扣成本後仍貺
+    assert t.net_twd > 0                     # 盤整市：收足時間價值，扣成本後仍賺
     assert t.costs_twd > 0
     assert res.peak_utilization <= 0.35      # 進場口數以 30% 上限決定
     assert res.equity_curve[-1][1] == INITIAL_EQUITY + t.net_twd
@@ -148,7 +148,7 @@ def test_backtest_is_bit_identical_on_rerun(tmp_path):
 
 
 def test_end_close_falls_back_when_last_day_unusable(tmp_path):
-    """最後一天只有選擇權、沒有 TX（timer 搜先於期交所上架的真實情境）——
+    """最後一天只有選擇權、沒有 TX（timer 搶先於期交所上架的真實情境）——
     期末平倉要往回退到最後一個可評價日，不可炸掉。"""
     with Store(tmp_path / "t.sqlite") as store:
         _insert_day(store, dt.date(2026, 7, 20), 22000.0, 0.20)
@@ -174,4 +174,3 @@ def test_double_slippage_hurts(tmp_path):
         r1 = run_backtest(store, strat, _cfg(1))
         r2 = run_backtest(store, strat, _cfg(2))
     assert r2.total_net < r1.total_net       # 滑價加倍 → 淨損益必然變差
-""""""
