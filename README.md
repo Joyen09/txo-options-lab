@@ -20,7 +20,7 @@ uv run pytest                # 全部測試需綠燈
 | `data/` | 期交所每日行情下載器（禮貌 rate limit）、嚴格表頭驗證 parser、sqlite 落地（冪等）、option chain 組裝（TX forward 對齊） | 2026-07-30 真實檔驗證通過 |
 | `vol/` | smile / ATM IV（forward 內插）/ term structure / IV rank・percentile / 25Δ skew、事件偵測（rank 門檻・倒掛・單日跳升） | 合成 chain 還原已知 σ |
 | `notify.py` | Discord webhook（沿用 tw-stock 模式；分段、no-throw、dry-run） | 單元測試 |
-| `backtest/` | **criteria.py（pre-registered，寫死不可回改）**、逐日重放引擎（結算價±滑價、稅費全含、保證金逐日重算與 30% 佔用 sizing、到期前強制平倉、無隨機性）、三基準策略（put 信用價差 / iron condor / short strangle） | 機制測試綠燈；**正式報告待 ≥1 年真實資料** |
+| `backtest/` | **criteria.py（pre-registered，寫死不可回改）**、逐日重放引擎（結算價±滑價、稅費全含、保證金逐日重算、到期前強制平倉、無隨機性；debit 部位與 IV rank 條件化進場）、三賣方基準 + B1 買方基準 | 機制測試綠燈 |
 | `cli.py` | `txolab fetch / backfill / monitor / chain / backtest / notify-test` | 冒煙測試 |
 
 ## 在 VM 上跑（每日收盤後自動監控 → Discord）
@@ -34,11 +34,23 @@ bash deploy/setup_vm.sh        # 安裝 + .env 樣板
 
 完整步驟（含 systemd timer 排程、Phase 0 收尾查證清單）見 **deploy/README_DEPLOY.md**。
 
+## Phase 5 回測結論（2026-07-31，2023-08 ~ 2026-07 真實日資料）
+
+| 策略 | 總淨損益 | 每筆期望值 | MDD | 佔用峰值 | criteria |
+|---|---|---|---|---|---|
+| vertical_spread | −28,316 | −745 | 44.8% | 25.2% | ❌ FAIL |
+| iron_condor | −414,346 | −11,199 | 47.2% | 25.7% | ❌ FAIL |
+| short_strangle | −205,060 | −3,728 | 23.3% | 32.0% | ❌ FAIL |
+
+**無條件、月月進場的賣方收租策略在本樣本非正期望值**——樣本涵蓋 2024-08
+日圓套利平倉與 2025-04 關稅兩次股災（停損集中於此）與指數 22k→40k 大多頭
+（輾壓 call 邊）。結論照實記錄，皆不進 Phase 6；criteria 未動過一字。
+待跑：pre-registered 買方基準 `long_strangle_low_iv`（門檻見 backtest.toml）。
+
 ## 接下來（按 SPEC Phase 順序）
 
-1. **Phase 5 正式報告**：VM 上回補歷史資料再跑回測——
-   `txolab backfill 2024-08-01`（約 2 年，禮貌限速約 50 分鐘，建議 nohup）
-   → `txolab backtest`（自動含滑價×2 敏感度與 criteria PASS/FAIL 判定）
+1. **B1 買方基準**：VM 上 `txolab backtest --strategy long_strangle_low_iv`
+   跑一次，結果照實記錄
 2. **Phase 6 paper trade（僅模擬）**：前提是至少一個策略通過 criteria；
    Shioaji `simulation=True` 寫死（鐵律 1：本 repo 禁止真實下單）
 3. 掛牌清單回驗 active_expiries、costs.toml 稅率查證、VIX 同向性對照
@@ -57,5 +69,7 @@ bash deploy/setup_vm.sh        # 安裝 + .env 樣板
 - 回測保證金：指數以最近月 TX 結算價近似（非 TAIEX 現貨）；iron condor 收兩邊
   價差保證金（部分期貨商只收單邊，本引擎寧高勿低）；到期前強制平倉故不依賴
   最後結算價資料源
+- 2026-07-31 結構修正（一次性，記錄於 config/backtest.toml）：翼寬改 delta 制、
+  sizing 改 25% 目標佔用；criteria 未動
 - VIX 同向性 sanity 對照（SPEC M4 DoD 之一）尚未實作——需要官方波動率指數
   歷史檔，留待 VM 上有真實資料後補

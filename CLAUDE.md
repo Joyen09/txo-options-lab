@@ -45,6 +45,12 @@ M4/M7 的通知一律沿用 Discord webhook 模式，環境變數 `DISCORD_WEBHO
   MDD≤20%、保證金佔用峰值≤30%、≥30 筆、扣成本期望值>0、滑價×2 不虧；
   初始資金 100 萬）、逐日重放引擎（結算價±滑價、稅費全含、保證金逐日重算、
   到期前強制平倉、bit-identical）、三基準策略、`txolab backfill / backtest`
-- ⬜ Phase 5 剩餘：VM 回補 ≥1 年歷史資料後跑正式報告（criteria 說了算）
+- ✅ Phase 5 正式報告（2026-07-31，2023-08~2026-07 三年真實資料，728 交易日）：
+  **賣方三基準全數 FAIL criteria**——vertical −2.8萬/MDD 44.8%、
+  iron_condor −41.4萬/MDD 47.2%、short_strangle −20.5萬/佔用 32%。
+  結論照實記錄：無條件月月賣租在本樣本非正期望值，皆不進 Phase 6。
+  （過程中做過一次性結構修正並記錄於 config/backtest.toml：delta 翼寬、25% sizing）
+- ⬜ B1 買方基準 long_strangle_low_iv（2026-07-31 pre-registered，門檻寫死於
+  backtest.toml）：待 VM 跑一次、結果照實記錄
 - ⬜ Phase 3 剩餘：掛牌清單回驗 active_expiries；costs.toml 稅率 verified_date
 - ⬜ Phase 6（paper trade，僅模擬；前提 = 至少一策略通過 criteria）

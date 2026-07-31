@@ -210,20 +210,29 @@ def _engine_config(slippage_mult: int = 1):
 
 
 def _strategies(bt: dict):
-    from .backtest.strategies import IronCondor, ShortStrangle, VerticalSpread
+    from .backtest.strategies import (
+        IronCondor,
+        LongStrangleLowIV,
+        ShortStrangle,
+        VerticalSpread,
+    )
     v, c, s = bt["vertical_spread"], bt["iron_condor"], bt["short_strangle"]
+    b = bt["long_strangle_low_iv"]
     return [
         VerticalSpread(v["short_delta"], v["wing_delta"], v["stop_credit_mult"]),
         IronCondor(c["short_delta"], c["wing_delta"], c["stop_credit_mult"]),
         ShortStrangle(s["short_delta"], s["stop_credit_mult"], s["stop_abs_delta"]),
+        LongStrangleLowIV(b["buy_delta"], b["iv_rank_max"], b["iv_rank_window"],
+                          b["premium_budget"], b["take_profit_mult"], b["stop_value_frac"]),
     ]
 
 
 @app.command()
-def backtest(strategy: str = typer.Option("all", help="all / vertical_spread / iron_condor / short_strangle"),
+def backtest(strategy: str = typer.Option(
+        "all", help="all / vertical_spread / iron_condor / short_strangle / long_strangle_low_iv"),
              start: str = typer.Option(None, help="起日 YYYY-MM-DD"),
              end: str = typer.Option(None, help="迄日 YYYY-MM-DD")):
-    """跑三個基準策略回測 + 滑價×2 敏感度，輸出 criteria PASS/FAIL 報告。
+    """跑基準策略回測 + 滑價×2 敏感度，輸出 criteria PASS/FAIL 報告。
 
     trade log 存 data/db/backtest_<策略>.csv；同一輸入重跑結果 bit-identical。
     """
