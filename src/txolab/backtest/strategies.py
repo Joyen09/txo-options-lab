@@ -4,9 +4,9 @@
 收租部位以「回補成本 ≥ 進場權利金 × stop_credit_mult」停損、
 到期前 force_close_dte 日一律強制平倉（結算週不賭）。
 
-- vertical_spread：賣出 put 信用價差（賣 ~0.25Δ put + 買更價外 put 保險）
+- vertical_spread：賣出 put 信用價差（賣 ~0.25Δ put + 買 ~0.10Δ put 保險）
   ——買賣混合、最大虧損鎖死在履約價差
-- iron_condor：call/put 兩邊各一組信用價差（±0.20Δ）——兩邊收租、兩邊保險
+- iron_condor：call/put 兩邊各一組信用價差（賣 ±0.20Δ、買 ±0.10Δ）
 - short_strangle：裸賣 ±0.25Δ call+put——純賣方對照組，另加 delta 停損
 """
 from __future__ import annotations
@@ -29,27 +29,32 @@ def _strike_by_delta(sm: Smile, cp: str, target: float, r: float) -> float | Non
     return best[1] if best else None
 
 
-def _wing(sm: Smile, cp: str, short_strike: float, offset_points: float) -> float | None:
-    """保險腳：往價外方向 offset 點，取最接近且不等於短腳的可交易履約價。"""
+def _wing_by_delta(sm: Smile, cp: str, short_strike: float, target: float,
+                   r: float) -> float | None:
+    """保險腳：在短腳「更價外側」找 delta 最接近 target 的履約價。
+
+    delta 制翼寬會隨指數水準與 IV 自動縮放——固定點數在指數翻倍後
+    會退化成貼著短腳的無效保險（2026-07-31 結構修正，見 backtest.toml）。
+    """
     direction = 1.0 if cp == "C" else -1.0
-    target = short_strike + direction * offset_points
-    candidates = sorted({p.strike for p in sm.points if p.cp == cp}
-                        - {short_strike}, key=lambda k: (abs(k - target), k))
-    if not candidates:
-        return None
-    k = candidates[0]
-    # 保險腳必須真的在短腳的價外側，否則結構不成立
-    if direction * (k - short_strike) <= 0:
-        return None
-    return k
+    best: tuple[float, float] | None = None
+    for p in sm.points:
+        if p.cp != cp or p.iv is None:
+            continue
+        if direction * (p.strike - short_strike) <= 0:
+            continue  # 必須真的更價外，結構才成立
+        d = greeks(cp, sm.forward, p.strike, r, p.iv, sm.t_years).delta
+        cand = (abs(d - target), p.strike)
+        best = min(best, cand) if best else cand
+    return best[1] if best else None
 
 
 class VerticalSpread(Strategy):
     name, kind = "vertical_spread", "vertical"
 
-    def __init__(self, short_delta: float, wing_points: float, stop_credit_mult: float):
+    def __init__(self, short_delta: float, wing_delta: float, stop_credit_mult: float):
         self.short_delta = short_delta
-        self.wing_points = wing_points
+        self.wing_delta = wing_delta
         self.stop_credit_mult = stop_credit_mult
 
     def entry(self, sl: ExpirySlice, r: float) -> EntrySignal | None:
@@ -57,7 +62,7 @@ class VerticalSpread(Strategy):
         short = _strike_by_delta(sm, "P", -self.short_delta, r)
         if short is None:
             return None
-        long = _wing(sm, "P", short, self.wing_points)
+        long = _wing_by_delta(sm, "P", short, -self.wing_delta, r)
         if long is None:
             return None
         return EntrySignal(
@@ -68,9 +73,9 @@ class VerticalSpread(Strategy):
 class IronCondor(Strategy):
     name, kind = "iron_condor", "condor"
 
-    def __init__(self, short_delta: float, wing_points: float, stop_credit_mult: float):
+    def __init__(self, short_delta: float, wing_delta: float, stop_credit_mult: float):
         self.short_delta = short_delta
-        self.wing_points = wing_points
+        self.wing_delta = wing_delta
         self.stop_credit_mult = stop_credit_mult
 
     def entry(self, sl: ExpirySlice, r: float) -> EntrySignal | None:
@@ -79,8 +84,8 @@ class IronCondor(Strategy):
         sp = _strike_by_delta(sm, "P", -self.short_delta, r)
         if sc is None or sp is None or sc <= sp:
             return None
-        lc = _wing(sm, "C", sc, self.wing_points)
-        lp = _wing(sm, "P", sp, self.wing_points)
+        lc = _wing_by_delta(sm, "C", sc, self.wing_delta, r)
+        lp = _wing_by_delta(sm, "P", sp, -self.wing_delta, r)
         if lc is None or lp is None:
             return None
         return EntrySignal(

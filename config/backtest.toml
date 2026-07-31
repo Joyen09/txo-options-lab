@@ -1,5 +1,12 @@
 # M6 回測策略參數——這裡是「策略設定」，可以調；
 # 「通過標準」在 src/txolab/backtest/criteria.py，寫死不可回改（鐵律 2）。
+#
+# 2026-07-31 結構修正（誠實記錄，一次性、非調到通過為止的參數搜尋）：
+#   1. 翼寬由固定點數 (wing_points=400) 改為 delta 制 (wing_delta)——固定點數
+#      不隨指數縮放：指數 22k 時 400 點=1.8%，40k 時僅 1%，高 IV 時出現
+#      「收 17 點冒 383 點險」的病態部位（見 2025-04-08 trade log）
+#   2. sizing 改用 target_utilization=0.25 留緩衝——原本貼 30% 上限開倉，
+#      權益一回落佔用必破線（首輪回測 30.4%~30.8% 擦線 FAIL 是機制註定）
 
 [entry]
 min_days_to_expiry = 15   # 進場時近月至少剩幾個日曆日（太短 gamma 風險爆炸）
@@ -8,16 +15,17 @@ min_days_to_expiry = 15   # 進場時近月至少剩幾個日曆日（太短 gam
 force_close_days_to_expiry = 2  # 到期前 N 日強制平倉（結算週不賭，也免掉最後結算價依賴）
 
 [sizing]
-max_lots = 20             # 口數硬上限（實際口數 = min(此值, 30% 權益 / 每口保證金)）
+max_lots = 20               # 口數硬上限
+target_utilization = 0.25   # 進場目標佔用（低於 criteria 的 30% 上限，留權益回落緩衝）
 
 [vertical_spread]
 short_delta = 0.25        # 賣方腳目標 |delta|
-wing_points = 400         # 保險腳往價外幾點
+wing_delta = 0.10         # 保險腳目標 |delta|（隨指數與 IV 自動縮放）
 stop_credit_mult = 2.0    # 回補成本 >= 進場權利金 × 此倍數 → 停損
 
 [iron_condor]
 short_delta = 0.20
-wing_points = 400
+wing_delta = 0.10
 stop_credit_mult = 2.0
 
 [short_strangle]
