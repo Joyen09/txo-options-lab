@@ -38,6 +38,16 @@ def test_smile_recovers_known_sigma():
     assert a == pytest.approx(0.22, abs=0.005)
 
 
+def test_build_smile_cached_identical_and_reused():
+    from txolab.vol.surface import build_smile_cached
+    sl = _slice("202608", dt.date(2026, 8, 19), 23050.0, 0.22)
+    a = build_smile(sl, R)
+    b = build_smile_cached(sl, R)
+    c = build_smile_cached(sl, R)
+    assert b is c          # 第二次直接取快取
+    assert a == b          # 快取結果與現算 bit-identical
+
+
 def test_iv_rank_and_percentile():
     series = [0.15, 0.18, 0.20, 0.25, 0.35]
     assert iv_rank(series, 0.35) == pytest.approx(100.0)

@@ -245,7 +245,9 @@ def backtest(strategy: str = typer.Option("all", help="all / vertical_spread / i
         n_days = len(store.trade_dates())
         console.print(f"DB 內共 {n_days} 個交易日")
         for strat in strategies:
+            console.print(f"[dim]{strat.name}: 回測中（正常滑價）…[/dim]")
             res = run_backtest(store, strat, cfg1, d0, d1)
+            console.print(f"[dim]{strat.name}: 滑價×2 敏感度…[/dim]")
             res2x = run_backtest(store, strat, cfg2, d0, d1)
             report = evaluate(strat.name, res.n_closed, res.avg_net,
                               res.max_drawdown, res.peak_utilization,
