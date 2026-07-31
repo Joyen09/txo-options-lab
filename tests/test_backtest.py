@@ -167,6 +167,57 @@ def test_end_close_falls_back_when_last_day_unusable(tmp_path):
     assert res.trades[0].close_date == dt.date(2026, 7, 27)  # 退回最後可評價日
 
 
+# ---------------- B1 買方基準：debit 部位、預算制 sizing、IV rank 閘門 ----------------
+
+def _b1(window: int = 3):
+    from txolab.backtest.strategies import LongStrangleLowIV
+    return LongStrangleLowIV(buy_delta=0.25, iv_rank_max=30.0, iv_rank_window=window,
+                             premium_budget=0.05, take_profit_mult=2.0, stop_value_frac=0.5)
+
+
+def test_long_strangle_waits_for_window_and_low_rank(tmp_path):
+    """滿窗口前不進場；rank 高檔（IV 相對窗口在高點）也不進場。"""
+    with Store(tmp_path / "t.sqlite") as store:
+        # 3 天窗口，但 IV 一路走高 → 第 3 天 rank=100 → 永不進場
+        for i, sig in enumerate([0.15, 0.20, 0.30, 0.35]):
+            _insert_day(store, dt.date(2026, 7, 20) + dt.timedelta(days=i), 22000.0, sig)
+        res = run_backtest(store, _b1(window=3), _cfg())
+    assert res.n_closed == 0 and res.skipped_entries == 0  # 閘門擋下，不算 skip
+
+
+def test_long_strangle_take_profit_on_vol_spike(tmp_path):
+    """IV 走低到 rank=0 進場 → 隔日波動率爆發 → 市值 >= 2 倍停利。"""
+    with Store(tmp_path / "t.sqlite") as store:
+        days = [(dt.date(2026, 7, 20), 0.30), (dt.date(2026, 7, 21), 0.25),
+                (dt.date(2026, 7, 22), 0.20),   # rank=0 → 進場
+                (dt.date(2026, 7, 24), 0.55)]   # 波動率爆發 → 停利
+        for d, sig in days:
+            _insert_day(store, d, 22000.0, sig)
+        res = run_backtest(store, _b1(window=3), _cfg())
+    assert res.n_closed == 1
+    t = res.trades[0]
+    assert t.open_date == dt.date(2026, 7, 22) and t.reason == "take_profit"
+    assert t.net_twd > 0
+    assert t.entry_credit_points < 0            # debit：進場為淨付權利金
+    assert res.peak_utilization == 0.0          # 買方無保證金
+    # 預算制 sizing：權利金支出 <= 權益 5%
+    assert abs(t.entry_credit_points) * 50 * t.lots <= float(INITIAL_EQUITY) * 0.05
+
+
+def test_long_strangle_stop_on_theta_bleed(tmp_path):
+    """進場後波動率塌掉 → 市值 <= 50% 停損認賠。"""
+    with Store(tmp_path / "t.sqlite") as store:
+        days = [(dt.date(2026, 7, 20), 0.30), (dt.date(2026, 7, 21), 0.25),
+                (dt.date(2026, 7, 22), 0.20),   # rank=0 → 進場
+                (dt.date(2026, 7, 24), 0.08)]   # IV 塌掉 → 市值腰斬
+        for d, sig in days:
+            _insert_day(store, d, 22000.0, sig)
+        res = run_backtest(store, _b1(window=3), _cfg())
+    assert res.n_closed == 1
+    t = res.trades[0]
+    assert t.reason == "stop" and t.net_twd < 0
+
+
 def test_double_slippage_hurts(tmp_path):
     with Store(tmp_path / "t.sqlite") as store:
         _quiet_market(store)
