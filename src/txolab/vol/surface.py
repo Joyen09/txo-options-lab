@@ -52,20 +52,23 @@ def build_smile(sl: ExpirySlice, r: float) -> Smile:
 
 # ---------------- 回測用 smile 快取 ----------------
 
-_SMILE_CACHE: dict[tuple[str, str, float, int], Smile] = {}
+_SMILE_CACHE: dict[tuple, Smile] = {}
 
 
 def build_smile_cached(sl: ExpirySlice, r: float) -> Smile:
-    """同一 (交易日, 到期日) 的 smile 只算一次。
+    """同一 (交易日, 到期日, 價格內容) 的 smile 只算一次。
 
-    一次 `txolab backtest` 會跑 3 策略 × 2 種滑價 = 6 趟，而 IV 反推
+    一次 `txolab backtest` 會跑多策略 × 2 種滑價，而 IV 反推
     （每天數百個 Brent 求解）是唯一熱點；marks 不受滑價影響，
     故快取完全不改變結果（bit-identical 保證仍成立）。
+    key 含首尾列價格指紋——同鍵不同價（例如測試合成資料）不得誤中快取。
     記憶體：約 3 年回測 ≈ 數十 MB，程序結束即釋放。
     """
     if not sl.rows:
         return build_smile(sl, r)
-    key = (sl.rows[0].trade_date.isoformat(), sl.expiry_code, r, len(sl.rows))
+    r0, r1 = sl.rows[0], sl.rows[-1]
+    key = (r0.trade_date.isoformat(), sl.expiry_code, r, sl.forward, len(sl.rows),
+           r0.strike, r0.settlement, r0.close, r1.strike, r1.settlement, r1.close)
     sm = _SMILE_CACHE.get(key)
     if sm is None:
         sm = build_smile(sl, r)

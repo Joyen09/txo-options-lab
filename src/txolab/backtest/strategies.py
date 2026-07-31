@@ -1,13 +1,14 @@
-"""三個基準策略（SPEC M6）——先驗證機制，不是找聖杯。
+"""四個基準策略（SPEC M6 三賣方 + 2026-07-31 新增 B1 買方）——驗證機制，不是找聖杯。
 
 共同紀律：一次一組部位、空手才進場、delta 選檔（用當日 smile IV 反推）、
-收租部位以「回補成本 ≥ 進場權利金 × stop_credit_mult」停損、
 到期前 force_close_dte 日一律強制平倉（結算週不賭）。
+賣方以「回補成本 ≥ 進場權利金 × stop_credit_mult」停損；
+買方以市值對進場權利金的倍率停利/停損。
 
 - vertical_spread：賣出 put 信用價差（賣 ~0.25Δ put + 買 ~0.10Δ put 保險）
-  ——買賣混合、最大虧損鎖死在履約價差
 - iron_condor：call/put 兩邊各一組信用價差（賣 ±0.20Δ、買 ±0.10Δ）
-- short_strangle：裸賣 ±0.25Δ call+put——純賣方對照組，另加 delta 停損
+- short_strangle：裸賣 ±0.25Δ——純賣方對照組，另加 delta 停損
+- long_strangle_low_iv：IV rank 低檔買 ±0.25Δ 雙邊——買方基準（B1）
 """
 from __future__ import annotations
 
@@ -110,4 +111,33 @@ class ShortStrangle(Strategy):
             return None
         return EntrySignal(
             legs=(Leg(sl.expiry_code, sc, "C", -1), Leg(sl.expiry_code, sp, "P", -1)),
+            expiry=sl.expiry, kind=self.kind)
+
+
+class LongStrangleLowIV(Strategy):
+    """B1 買方基準（2026-07-31 pre-registered，門檻見 backtest.toml，不可回調）。
+
+    波動率便宜（近月 IV rank 低檔）時買雙邊——方向中性，賭的是
+    「便宜買進的 vega/gamma 在波動率回升或大行情時兌現」。
+    買方最大虧損 = 付出的權利金（sizing 即以此預算），無保證金、無追繳。
+    """
+    name, kind = "long_strangle_low_iv", "debit"
+
+    def __init__(self, buy_delta: float, iv_rank_max: float, iv_rank_window: int,
+                 premium_budget: float, take_profit_mult: float, stop_value_frac: float):
+        self.buy_delta = buy_delta
+        self.iv_rank_max = iv_rank_max
+        self.iv_rank_window = iv_rank_window
+        self.premium_budget = premium_budget
+        self.take_profit_mult = take_profit_mult
+        self.stop_value_frac = stop_value_frac
+
+    def entry(self, sl: ExpirySlice, r: float) -> EntrySignal | None:
+        sm = build_smile_cached(sl, r)
+        lc = _strike_by_delta(sm, "C", self.buy_delta, r)
+        lp = _strike_by_delta(sm, "P", -self.buy_delta, r)
+        if lc is None or lp is None or lc <= lp:
+            return None
+        return EntrySignal(
+            legs=(Leg(sl.expiry_code, lc, "C", +1), Leg(sl.expiry_code, lp, "P", +1)),
             expiry=sl.expiry, kind=self.kind)

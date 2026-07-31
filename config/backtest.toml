@@ -32,3 +32,14 @@ stop_credit_mult = 2.0
 short_delta = 0.25
 stop_credit_mult = 2.0
 stop_abs_delta = 0.45     # 任一賣方腳 |delta| 觸此值 → 強制停損（SPEC 要求）
+
+# B1 買方基準（2026-07-31 拍板寫死；pre-registered：實作完跑一次、結果照實記錄，
+# 不可回頭調門檻。動機：方向中性、「波動率便宜時買波動」與賣方邏輯對稱、
+# 條件化用自家 M4 IV rank 指標）
+[long_strangle_low_iv]
+buy_delta = 0.25          # 買方腳目標 |delta|（call/put 各一）
+iv_rank_max = 30.0        # 近月 IV rank <= 此值才進場（波動率便宜）
+iv_rank_window = 60       # rank 回看交易日數（同 M4 monitor 定義；滿窗口前不進場）
+premium_budget = 0.05     # 權利金總支出 <= 權益 5%（買方無保證金，最大虧損即此預算）
+take_profit_mult = 2.0    # 市值 >= 進場權利金 × 2 → 停利
+stop_value_frac = 0.5     # 市值 <= 進場權利金 × 0.5 → 停損（theta 磨損認賠）
