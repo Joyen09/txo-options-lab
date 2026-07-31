@@ -6,7 +6,9 @@
     bid/ask，這是已知限制，滑價參數要做敏感度分析）
   - 成本全含：期交稅（權利金 × 稅率、雙邊）+ 手續費（每口每邊）
   - 保證金逐日重算（指數以最近月 TX 結算價近似，期現基差誤差已記錄）；
-    部位大小以「保證金佔用 ≤ util_cap × 當時權益」決定口數
+    賣方口數以「保證金佔用 ≤ util_cap × 當時權益」決定；
+    買方（debit）無保證金，口數以「權利金支出 ≤ premium_budget × 權益」決定
+  - 條件化進場：策略可設 IV rank 門檻（近月 ATM IV 逐日自算，滿窗口前不進場）
   - 結算週處理：到期前 force_close_dte 日強制平倉——引擎永不持有到期，
     因此不需要最後結算價（那要另一個資料源）
   - 無任何隨機性：同一輸入重跑 bit-identical
@@ -29,6 +31,7 @@ from ..margin.engine import (
 )
 from ..pricing.greeks import greeks
 from ..pricing.iv import implied_vol
+from ..vol.surface import atm_iv, build_smile_cached, iv_rank
 
 MarkKey = tuple[str, float, str]  # (expiry_code, strike, cp)
 
@@ -45,7 +48,7 @@ class Leg:
 class EntrySignal:
     legs: tuple[Leg, ...]
     expiry: dt.date
-    kind: str  # 'vertical' | 'condor' | 'strangle'——決定保證金算法
+    kind: str  # 'vertical' | 'condor' | 'strangle' | 'debit'——決定保證金算法
 
 
 @dataclass(frozen=True)
@@ -53,10 +56,10 @@ class ClosedTrade:
     strategy: str
     open_date: dt.date
     close_date: dt.date
-    reason: str          # 'stop' | 'delta_stop' | 'expiry_week' | 'end'
+    reason: str          # 'stop' | 'delta_stop' | 'take_profit' | 'expiry_week' | 'end'
     lots: int
-    entry_credit_points: float   # 每口淨收權利金（負值 = 淨付）
-    exit_debit_points: float     # 每口平倉淨付
+    entry_credit_points: float   # 每口淨收權利金（負值 = 淨付，即買方）
+    exit_debit_points: float     # 每口平倉淨付（負值 = 平倉淨收）
     costs_twd: Decimal           # 全部稅費（進出雙邊 × 口數）
     net_twd: Decimal             # 淨損益（含成本）
 
@@ -131,6 +134,13 @@ class Strategy:
     kind: str = ""
     stop_credit_mult: float = 2.0
     stop_abs_delta: float | None = None  # 任一賣方腳 |delta| 觸頂即停損（None = 不檢查）
+    # ---- 買方（debit）部位專用 ----
+    premium_budget: float | None = None   # 非 None = 預算制 sizing（權利金支出 <= 權益×此值）
+    take_profit_mult: float | None = None  # 市值 >= 進場權利金 × 此值 → 停利
+    stop_value_frac: float | None = None   # 市值 <= 進場權利金 × 此值 → 停損
+    # ---- 條件化進場 ----
+    iv_rank_max: float | None = None      # 近月 IV rank <= 此值才進場（None = 不限）
+    iv_rank_window: int = 60              # rank 回看交易日數；滿窗口前不進場
 
     def entry(self, sl: ExpirySlice, r: float) -> EntrySignal | None:
         raise NotImplementedError
@@ -158,6 +168,8 @@ def _position_margin(sig: EntrySignal, index: float, marks: dict[MarkKey, float]
     """每口保證金。缺 mark 時回 None（無法評價 → 不進場/沿用前值）。"""
     shorts = [l for l in sig.legs if l.qty < 0]
     longs = [l for l in sig.legs if l.qty > 0]
+    if sig.kind == "debit":
+        return Decimal(0)  # 純買方：權利金付清即最大風險，無保證金
     if sig.kind == "vertical":
         return vertical_spread_margin(shorts[0].strike, longs[0].strike)
     if sig.kind == "condor":
@@ -223,6 +235,7 @@ def run_backtest(store: Store, strategy: Strategy, cfg: EngineConfig,
     res = BacktestResult(strategy=strategy.name, slippage_ticks=cfg.slippage_ticks)
     cash = cfg.initial_equity
     pos: _Position | None = None
+    iv_series: list[float] = []  # 近月 ATM IV 逐日序列（條件化進場的 rank 窗口）
 
     dates = [dt.date.fromisoformat(s) for s in store.trade_dates()]
     dates = [d for d in dates
@@ -258,6 +271,12 @@ def run_backtest(store: Store, strategy: Strategy, cfg: EngineConfig,
         monthly = [s for s in chain.slices if len(s.expiry_code) == 6]
         index = monthly[0].forward if monthly else chain.slices[0].forward
 
+        # ---- 0. 條件化進場的 IV rank 序列（僅有設門檻的策略需要）----
+        if strategy.iv_rank_max is not None and monthly:
+            a = atm_iv(build_smile_cached(monthly[0], cfg.r))
+            if a is not None:
+                iv_series.append(a)
+
         # ---- 1. 管理在倉部位 ----
         closed_today = False
         if pos is not None:
@@ -266,15 +285,22 @@ def run_backtest(store: Store, strategy: Strategy, cfg: EngineConfig,
             value = _leg_value(pos.signal.legs, marks)
             if dte <= cfg.force_close_dte:
                 reason = "expiry_week"
-            elif value is not None:
-                buyback = -value  # 收租部位的回補成本（點）
-                if (pos.entry_credit_points > 0
-                        and buyback >= pos.entry_credit_points * strategy.stop_credit_mult):
+            elif value is not None and pos.entry_credit_points > 0:  # 收租部位
+                buyback = -value  # 回補成本（點）
+                if buyback >= pos.entry_credit_points * strategy.stop_credit_mult:
                     reason = "stop"
                 elif strategy.stop_abs_delta is not None:
                     deltas = _short_deltas(pos, chain, cfg.r)
                     if deltas and max(abs(x) for x in deltas) >= strategy.stop_abs_delta:
                         reason = "delta_stop"
+            elif value is not None and pos.entry_credit_points < 0:  # 買方（debit）部位
+                debit = -pos.entry_credit_points  # 進場付出的權利金（點）
+                if (strategy.take_profit_mult is not None
+                        and value >= debit * strategy.take_profit_mult):
+                    reason = "take_profit"
+                elif (strategy.stop_value_frac is not None
+                        and value <= debit * strategy.stop_value_frac):
+                    reason = "stop"
             if reason is not None and value is not None:
                 exit_points, cash_flow, exit_costs = trade_legs_twd(
                     pos.signal.legs, pos.lots, marks, closing=True)
@@ -302,33 +328,49 @@ def run_backtest(store: Store, strategy: Strategy, cfg: EngineConfig,
             res.equity_curve.append((d.isoformat(), equity))
             break  # 爆倉——真實世界早被斷頭，回測到此為止
 
-        # ---- 3. 空手時評估進場（當日剛平倉則跳過）----
-        if pos is None and not closed_today:
+        # ---- 3. 空手時評估進場（當日剛平倉則跳過；IV rank 門檻在此把關）----
+        rank_ok = True
+        if strategy.iv_rank_max is not None:
+            w = strategy.iv_rank_window
+            if len(iv_series) < w:
+                rank_ok = False  # 滿窗口前不進場（rank 無意義）
+            else:
+                rank = iv_rank(iv_series[-w:], iv_series[-1])
+                rank_ok = rank is not None and rank <= strategy.iv_rank_max
+        if pos is None and not closed_today and rank_ok:
             sl = next((s for s in monthly
                        if (s.expiry - d).days >= cfg.min_entry_dte), None)
             sig = strategy.entry(sl, cfg.r) if sl is not None else None
             if sig is not None:
-                margin_per_lot = _position_margin(sig, index, marks, cfg)
-                if margin_per_lot is None or margin_per_lot <= 0:
+                lots = 0
+                margin_per_lot = Decimal(0)
+                if strategy.premium_budget is not None:  # 買方：權利金預算制
+                    cost = _leg_value(sig.legs, marks)   # 每口權利金支出（點，正值）
+                    if cost is not None and cost > 0:
+                        budget = equity * Decimal(str(strategy.premium_budget))
+                        lots = min(int(budget / (Decimal(str(round(cost, 4))) * MULTIPLIER)),
+                                   cfg.max_lots)
+                else:  # 賣方：保證金佔用制
+                    m = _position_margin(sig, index, marks, cfg)
+                    if m is not None and m > 0:
+                        margin_per_lot = m
+                        budget = equity * Decimal(str(cfg.util_cap))
+                        lots = min(int(budget / m), cfg.max_lots)
+                if lots < 1:
                     res.skipped_entries += 1
                 else:
-                    budget = equity * Decimal(str(cfg.util_cap))
-                    lots = min(int(budget / margin_per_lot), cfg.max_lots)
-                    if lots < 1:
-                        res.skipped_entries += 1
-                    else:
-                        entry_points, cash_flow, entry_costs = trade_legs_twd(
-                            sig.legs, lots, marks, closing=False)
-                        cash += cash_flow
-                        pos = _Position(signal=sig, lots=lots, open_date=d,
-                                        entry_credit_points=entry_points,
-                                        entry_costs=entry_costs,
-                                        margin=margin_per_lot * lots)
-                        value = _leg_value(sig.legs, marks)
-                        equity = cash + (Decimal(str(round(value, 4))) * MULTIPLIER * lots
-                                         if value is not None else Decimal(0))
+                    entry_points, cash_flow, entry_costs = trade_legs_twd(
+                        sig.legs, lots, marks, closing=False)
+                    cash += cash_flow
+                    pos = _Position(signal=sig, lots=lots, open_date=d,
+                                    entry_credit_points=entry_points,
+                                    entry_costs=entry_costs,
+                                    margin=margin_per_lot * lots)
+                    value = _leg_value(sig.legs, marks)
+                    equity = cash + (Decimal(str(round(value, 4))) * MULTIPLIER * lots
+                                     if value is not None else Decimal(0))
 
-        # ---- 4. 保證金佔用（逐日重算，加收檔位隨行情變動）----
+        # ---- 4. 保證金佔用（逐日重算，加收檔位隨行情變動；買方恆為 0）----
         util = 0.0
         if pos is not None:
             m = _position_margin(pos.signal, index, marks, cfg)
