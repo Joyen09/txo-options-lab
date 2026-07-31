@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from ..data.chain import ExpirySlice
 from ..pricing.greeks import greeks
-from ..vol.surface import Smile, build_smile
+from ..vol.surface import Smile, build_smile_cached
 from .engine import EntrySignal, Leg, Strategy
 
 
@@ -53,7 +53,7 @@ class VerticalSpread(Strategy):
         self.stop_credit_mult = stop_credit_mult
 
     def entry(self, sl: ExpirySlice, r: float) -> EntrySignal | None:
-        sm = build_smile(sl, r)
+        sm = build_smile_cached(sl, r)
         short = _strike_by_delta(sm, "P", -self.short_delta, r)
         if short is None:
             return None
@@ -74,7 +74,7 @@ class IronCondor(Strategy):
         self.stop_credit_mult = stop_credit_mult
 
     def entry(self, sl: ExpirySlice, r: float) -> EntrySignal | None:
-        sm = build_smile(sl, r)
+        sm = build_smile_cached(sl, r)
         sc = _strike_by_delta(sm, "C", self.short_delta, r)
         sp = _strike_by_delta(sm, "P", -self.short_delta, r)
         if sc is None or sp is None or sc <= sp:
@@ -98,7 +98,7 @@ class ShortStrangle(Strategy):
         self.stop_abs_delta = stop_abs_delta  # 任一賣方腳 |Δ| 觸頂 → 強制停損
 
     def entry(self, sl: ExpirySlice, r: float) -> EntrySignal | None:
-        sm = build_smile(sl, r)
+        sm = build_smile_cached(sl, r)
         sc = _strike_by_delta(sm, "C", self.short_delta, r)
         sp = _strike_by_delta(sm, "P", -self.short_delta, r)
         if sc is None or sp is None or sc <= sp:

@@ -50,6 +50,29 @@ def build_smile(sl: ExpirySlice, r: float) -> Smile:
     return Smile(sl.expiry_code, sl.forward, sl.t_years, points)
 
 
+# ---------------- 回測用 smile 快取 ----------------
+
+_SMILE_CACHE: dict[tuple[str, str, float, int], Smile] = {}
+
+
+def build_smile_cached(sl: ExpirySlice, r: float) -> Smile:
+    """同一 (交易日, 到期日) 的 smile 只算一次。
+
+    一次 `txolab backtest` 會跑 3 策略 × 2 種滑價 = 6 趟，而 IV 反推
+    （每天數百個 Brent 求解）是唯一熱點；marks 不受滑價影響，
+    故快取完全不改變結果（bit-identical 保證仍成立）。
+    記憶體：約 3 年回測 ≈ 數十 MB，程序結束即釋放。
+    """
+    if not sl.rows:
+        return build_smile(sl, r)
+    key = (sl.rows[0].trade_date.isoformat(), sl.expiry_code, r, len(sl.rows))
+    sm = _SMILE_CACHE.get(key)
+    if sm is None:
+        sm = build_smile(sl, r)
+        _SMILE_CACHE[key] = sm
+    return sm
+
+
 def atm_iv(smile: Smile) -> float | None:
     """ATM IV = 以 forward 兩側最近履約價的 IV 線性內插；解不出來回 None。"""
     ivs = smile.iv_by_strike()
