@@ -28,7 +28,7 @@ from ..margin.engine import (
     vertical_spread_margin,
 )
 from ..pricing.greeks import greeks
-from ..vol.surface import build_smile_cached
+from ..pricing.iv import implied_vol
 
 MarkKey = tuple[str, float, str]  # (expiry_code, strike, cp)
 
@@ -191,18 +191,29 @@ def _leg_value(legs: tuple[Leg, ...], marks: dict[MarkKey, float]) -> float | No
 
 
 def _short_deltas(pos: _Position, chain: Chain, r: float) -> list[float]:
-    """賣方腳的當前 delta（用當日 smile IV）。算不出來的腳略過。"""
+    """賣方腳的當前 delta（用當日該腳結算價反推 IV）。算不出來的腳略過。
+
+    只解「賣方腳本身」的 IV（每天 2 次 Brent 求解），不建整條 smile
+    （數百次）——delta 停損逐日要跑，這裡是 short_strangle 的效能熱點。
+    輸入與解法跟 smile 版完全相同，結果 bit-identical。
+    """
     sl = next((s for s in chain.slices
                if s.expiry_code == pos.signal.legs[0].expiry_code), None)
     if sl is None:
         return []
-    sm = build_smile_cached(sl, r)
-    iv_by = {(p.strike, p.cp): p.iv for p in sm.points if p.iv is not None}
+    price_by = {(row.strike, row.cp): (row.settlement if row.settlement else row.close)
+                for row in sl.rows}
     out = []
     for leg in pos.signal.legs:
-        if leg.qty < 0 and (leg.strike, leg.cp) in iv_by:
-            out.append(greeks(leg.cp, sl.forward, leg.strike, r,
-                              iv_by[(leg.strike, leg.cp)], sl.t_years).delta)
+        if leg.qty >= 0:
+            continue
+        price = price_by.get((leg.strike, leg.cp))
+        if price is None or price <= 0:
+            continue
+        res = implied_vol(leg.cp, price, sl.forward, leg.strike, r, sl.t_years)
+        if res.iv is None:
+            continue
+        out.append(greeks(leg.cp, sl.forward, leg.strike, r, res.iv, sl.t_years).delta)
     return out
 
 
