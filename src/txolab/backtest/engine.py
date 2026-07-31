@@ -328,13 +328,21 @@ def run_backtest(store: Store, strategy: Strategy, cfg: EngineConfig,
         res.utilization_curve.append((d.isoformat(), util))
 
     # ---- 期末強制平倉（讓樣本封閉）----
-    if pos is not None and dates:
-        d = dates[-1]
-        options = store.options_on(d)
-        futures = store.futures_on(d)
-        chain = build_chain(d, options, futures)
-        marks = _marks(chain)
-        if _leg_value(pos.signal.legs, marks) is not None:
+    # 最後一天可能是殘缺日（例如當日 timer 抓到選擇權檔但 TX 檔尚未上架），
+    # 從最後一天往回找第一個「可完整評價」的日子平倉。
+    if pos is not None:
+        for d in reversed(dates):
+            options = store.options_on(d)
+            futures = store.futures_on(d)
+            if not options or not futures:
+                continue
+            try:
+                chain = build_chain(d, options, futures)
+            except Exception:  # noqa: BLE001, S112 — 殘缺日跳過，繼續往回找
+                continue
+            marks = _marks(chain)
+            if _leg_value(pos.signal.legs, marks) is None:
+                continue
             exit_points, cash_flow, exit_costs = trade_legs_twd(
                 pos.signal.legs, pos.lots, marks, closing=True)
             cash += cash_flow
@@ -347,5 +355,9 @@ def run_backtest(store: Store, strategy: Strategy, cfg: EngineConfig,
                 entry_credit_points=pos.entry_credit_points,
                 exit_debit_points=-exit_points,
                 costs_twd=total_costs, net_twd=net))
-            res.equity_curve[-1] = (d.isoformat(), cash)
+            if res.equity_curve and res.equity_curve[-1][0] == d.isoformat():
+                res.equity_curve[-1] = (d.isoformat(), cash)
+            else:
+                res.equity_curve.append((d.isoformat(), cash))
+            break
     return res

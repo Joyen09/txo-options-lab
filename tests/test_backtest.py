@@ -147,6 +147,26 @@ def test_backtest_is_bit_identical_on_rerun(tmp_path):
     assert a.utilization_curve == b.utilization_curve
 
 
+def test_end_close_falls_back_when_last_day_unusable(tmp_path):
+    """最後一天只有選擇權、沒有 TX（timer 搜先於期交所上架的真實情境）——
+    期末平倉要往回退到最後一個可評價日，不可炸掉。"""
+    with Store(tmp_path / "t.sqlite") as store:
+        _insert_day(store, dt.date(2026, 7, 20), 22000.0, 0.20)
+        _insert_day(store, dt.date(2026, 7, 27), 22000.0, 0.20)
+        # 7/31：只有選擇權列，futures_daily 空 → build_chain 會 ChainError
+        d = dt.date(2026, 7, 31)
+        t = (EXPIRY - d).days / 365.0
+        rows = [OptionRow(d, "TXO", "202608", float(k), cp, None, None, None, None,
+                          max(round(black76.price(cp, 22000.0, k, R, 0.20, t), 1), 0.1),
+                          100, 10, "一般")
+                for k in range(21000, 23001, 100) for cp in ("C", "P")]
+        store.upsert_options(rows)
+        res = run_backtest(store, ShortStrangle(0.25, 2.0, 0.45), _cfg())
+    assert res.n_closed == 1
+    assert res.trades[0].reason == "end"
+    assert res.trades[0].close_date == dt.date(2026, 7, 27)  # 退回最後可評價日
+
+
 def test_double_slippage_hurts(tmp_path):
     with Store(tmp_path / "t.sqlite") as store:
         _quiet_market(store)
@@ -154,3 +174,4 @@ def test_double_slippage_hurts(tmp_path):
         r1 = run_backtest(store, strat, _cfg(1))
         r2 = run_backtest(store, strat, _cfg(2))
     assert r2.total_net < r1.total_net       # 滑價加倍 → 淨損益必然變差
+""""""
