@@ -54,5 +54,14 @@ M4/M7 的通知一律沿用 Discord webhook 模式，環境變數 `DISCORD_WEBHO
   **5 項過 4 項但 FAIL**——+47.0萬 / 每筆 +15,672 / 滑價×2 +44.7萬 / 佔用 0%，
   唯 MDD 26.5% > 20%（2024-09~2025-02 連續 8 筆停損 −25.0萬）。
   第一個正期望值策略，但規則就是規則，不進 Phase 6；criteria 未動。
+- ✅ B2 long_strangle_low_iv_2pct（2026-08-03）：sizing 2% 把 MDD 壓到 8.5%，
+  但權利金貴時 lots 歸零 → 25 筆 < 30 **FAIL**（降風險有效、樣本不足）
+- ✅ B3 bull_call_spread_trend（2026-08-03）：39 筆 / +110,773 / 每筆 +2,840 /
+  MDD 8.3% / 佔用 0% / 滑價×2 +68,369 → **五項全過 PASS**，
+  本專案第一個通過 pre-registered criteria 的策略。
+  誠實標註：同一份資料第四次測試（多重測試）、樣本為 22k→40k 大多頭而
+  200MA 閘門使其結構性做多（可能賺 beta 非 edge）、39 筆屬小樣本。
+  **樣本外（2027-02-01 起評估）才是最終仲裁**；criteria 未動。
 - ⬜ Phase 3 剩餘：掛牌清單回驗 active_expiries；costs.toml 稅率 verified_date
-- ⬜ Phase 6（paper trade，僅模擬）：前提（至少一策略通過 criteria）**尚未成立**
+- ⬜ Phase 6（paper trade，**僅模擬**）：前提已成立（B3 通過 criteria），
+  候選僅 B3。Shioaji simulation=True 寫死；鐵律 1 不因回測結果鬆動。
