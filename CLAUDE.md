@@ -70,5 +70,11 @@ M4/M7 的通知一律沿用 Discord webhook 模式，環境變數 `DISCORD_WEBHO
   依 pre-registration，S1 不撤銷也不加強已記錄的 PASS；criteria 未動。
   （順帶更正：`backfill` 原記「期交所僅提供近三年」為誤，實測 2022 資料可取得）
 - ⬜ Phase 3 剩餘：掛牌清單回驗 active_expiries；costs.toml 稅率 verified_date
-- ⬜ Phase 6（paper trade，**僅模擬**）：前提已成立（B3 通過 criteria），
-  候選僅 B3。Shioaji simulation=True 寫死；鐵律 1 不因回測結果鬆動。
+- ✅ Phase 6 第一階段（2026-08-03，`txolab paper`）：sqlite 模擬帳本（一次一組部位、
+  Decimal 落地、每日冪等、可重啟）+ 每日 runner + Discord 報告。
+  **paper/ 完全不含下單程式碼**（比鐵律 1 更嚴：不是靠旗標，是根本沒有那條路徑），
+  另有 AST 測試把關。進出場規則抽出為 engine.close_reason / entry_gates_ok /
+  size_lots / trade_legs_twd，**回測與 paper trade 共用同一份實作**並有逐欄一致性測試。
+  已知限制：日行情無 bid/ask，本階段成交價與回測同源，只驗管線不驗滑價假設。
+- ⬜ Phase 6 第二階段：接即時報價（**唯讀**）比對真實 bid/ask 與「結算價 ± 1 tick」
+  假設的落差。仍不得出現任何下單路徑。
