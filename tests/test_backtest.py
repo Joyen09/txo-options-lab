@@ -218,6 +218,38 @@ def test_long_strangle_stop_on_theta_bleed(tmp_path):
     assert t.reason == "stop" and t.net_twd < 0
 
 
+def _b3(ma: int = 3):
+    from txolab.backtest.strategies import BullCallSpread
+    return BullCallSpread(long_delta=0.40, short_delta=0.15, trend_ma_days=ma,
+                          premium_budget=0.02, take_profit_mult=2.0, stop_value_frac=0.5)
+
+
+def test_bull_call_spread_blocked_in_downtrend(tmp_path):
+    """下跌序列：指數一路低於均線 → 趨勢閘門擋住，全程不進場。"""
+    with Store(tmp_path / "t.sqlite") as store:
+        for i, f in enumerate([23000.0, 22800.0, 22600.0, 22400.0]):
+            _insert_day(store, dt.date(2026, 7, 20) + dt.timedelta(days=i), f, 0.20)
+        res = run_backtest(store, _b3(ma=3), _cfg())
+    assert res.n_closed == 0 and res.skipped_entries == 0
+
+
+def test_bull_call_spread_enters_uptrend_and_takes_profit(tmp_path):
+    """上升序列滿均線窗口後進場 → 大漲 → 市值 >= 2 倍停利。"""
+    with Store(tmp_path / "t.sqlite") as store:
+        days = [(dt.date(2026, 7, 20), 22000.0), (dt.date(2026, 7, 21), 22150.0),
+                (dt.date(2026, 7, 22), 22300.0),   # index > MA(3) → 進場
+                (dt.date(2026, 7, 24), 23500.0)]   # 大漲 → 停利
+        for d, f in days:
+            _insert_day(store, d, f, 0.20)
+        res = run_backtest(store, _b3(ma=3), _cfg())
+    assert res.n_closed == 1
+    t = res.trades[0]
+    assert t.open_date == dt.date(2026, 7, 22)
+    assert t.reason == "take_profit" and t.net_twd > 0
+    assert t.entry_credit_points < 0            # 債務價差：淨付權利金
+    assert res.peak_utilization == 0.0          # 買權多頭價差免保證金
+
+
 def test_double_slippage_hurts(tmp_path):
     with Store(tmp_path / "t.sqlite") as store:
         _quiet_market(store)

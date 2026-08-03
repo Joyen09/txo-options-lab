@@ -20,7 +20,7 @@ uv run pytest                # 全部測試需綠燈
 | `data/` | 期交所每日行情下載器（禮貌 rate limit）、嚴格表頭驗證 parser、sqlite 落地（冪等）、option chain 組裝（TX forward 對齊） | 2026-07-30 真實檔驗證通過 |
 | `vol/` | smile / ATM IV（forward 內插）/ term structure / IV rank・percentile / 25Δ skew、事件偵測（rank 門檻・倒掛・單日跳升） | 合成 chain 還原已知 σ |
 | `notify.py` | Discord webhook（沿用 tw-stock 模式；分段、no-throw、dry-run） | 單元測試 |
-| `backtest/` | **criteria.py（pre-registered，寫死不可回改）**、逐日重放引擎（結算價±滑價、稅費全含、保證金逐日重算、到期前強制平倉、無隨機性；debit 部位與 IV rank 條件化進場）、三賣方基準 + B1 買方基準 | 機制測試綠燈 |
+| `backtest/` | **criteria.py（pre-registered，寫死不可回改）**、逐日重放引擎（結算價±滑價、稅費全含、保證金逐日重算、到期前強制平倉、無隨機性；debit 部位、IV rank 與趨勢均線條件化進場）、三賣方基準 + 買方 B1/B2/B3 | 機制測試綠燈 |
 | `cli.py` | `txolab fetch / backfill / monitor / chain / backtest / notify-test` | 冒煙測試 |
 
 ## 在 VM 上跑（每日收盤後自動監控 → Discord）
@@ -61,10 +61,18 @@ curve-fitting，故判決不變。
 
 1. 四個基準皆未過 criteria → **Phase 6 前提未成立**，paper trade 不啟動
    （鐵律 1：本 repo 一律禁止真實下單，無論回測結果如何）
-2. 若要再測新策略：規則必須**先寫死再跑**；且對同一份三年資料的第 N 次測試
-   要在報告註明多重比較偏誤（證據力弱於一次就過）
-3. 每日隱波監控（M4）持續運行，累積樣本外資料——這是未來真正的驗證機會
-4. 掛牌清單回驗 active_expiries、costs.toml 稅率查證、VIX 同向性對照
+2. **B2 / B3 待跑**（2026-07-31 pre-registered，規則與警語見 backtest.toml）：
+   B2 = B1 僅 sizing 5%→2%（外部依據：固定比例風險標準值）；
+   B3 = 200 日均線趨勢過濾的 call 債務價差。兩者皆為對同一份三年資料的
+   **重複測試**，即使 PASS 證據力也弱於一次就過，最終仲裁看樣本外
+3. 掛牌清單回驗 active_expiries、costs.toml 稅率查證、VIX 同向性對照
+
+## 樣本外驗證約定（2026-07-31 寫死）
+
+- B1/B2/B3 之規則與參數凍結於 2026-07-31；**樣本外期間自 2026-08-01 起算**
+- M4 每日排程持續累積資料（timer 自動 fetch）；**2027-02-01 之後**以
+  `txolab backtest --start 2026-08-01` 對凍結規則做首次樣本外評估
+- 樣本外結果照實記錄，criteria 同一套；在此之前不對凍結策略做任何改動
 
 ## 與 SPEC 的差異（誠實記錄）
 
