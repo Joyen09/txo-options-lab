@@ -36,6 +36,7 @@ stop_abs_delta = 0.45     # 任一賣方腳 |delta| 觸此值 → 強制停損�
 # B1 買方基準（2026-07-31 拍板寫死；pre-registered：實作完跑一次、結果照實記錄，
 # 不可回頭調門檻。動機：方向中性、「波動率便宜時買波動」與賣方邏輯對稱、
 # 條件化用自家 M4 IV rank 指標）
+# 結果（2026-07-31）：5 項過 4 項、+47.0 萬，唯 MDD 26.5% > 20% → FAIL，已歸檔
 [long_strangle_low_iv]
 buy_delta = 0.25          # 買方腳目標 |delta|（call/put 各一）
 iv_rank_max = 30.0        # 近月 IV rank <= 此值才進場（波動率便宜）
@@ -43,3 +44,28 @@ iv_rank_window = 60       # rank 回看交易日數（同 M4 monitor 定義；�
 premium_budget = 0.05     # 權利金總支出 <= 權益 5%（買方無保證金，最大虧損即此預算）
 take_profit_mult = 2.0    # 市值 >= 進場權利金 × 2 → 停利
 stop_value_frac = 0.5     # 市值 <= 進場權利金 × 0.5 → 停損（theta 磨損認賠）
+
+# B2（2026-07-31 寫死）：B1 全套規則不動，僅 sizing 5% → 2%——2% 為資金管理
+# 文獻的固定比例風險標準值（外部依據），非看著 B1 的 26.5% 反推。
+# ⚠️ 誠實警語：這是對同一份三年資料的第二次測試，多重比較偏誤存在，
+# 即使 PASS 證據力也弱於一次就過；最終仲裁以樣本外驗證為準（見 README）。
+[long_strangle_low_iv_2pct]
+buy_delta = 0.25
+iv_rank_max = 30.0
+iv_rank_window = 60
+premium_budget = 0.02
+take_profit_mult = 2.0
+stop_value_frac = 0.5
+
+# B3（2026-07-31 寫死）：趨勢過濾的 call 債務價差——買 0.40Δ call + 賣 0.15Δ call
+# （淨付權利金，最大虧損 = 淨支出，期交所此組合免保證金），僅在「近月 TX >
+# 200 日均線」時進場。動機：動能/趨勢過濾有跨市場長期文獻基礎（非僅本樣本）；
+# ⚠️ 誠實警語：含多頭方向信念，且本樣本恰為大多頭（結果有向上偏誤）、
+# 同為對同一份資料的重複測試；200 日均線暖機期使可交易區間縮短約 200 日。
+[bull_call_spread_trend]
+long_delta = 0.40         # 買進腳目標 delta
+short_delta = 0.15        # 賣出腳（更價外，降低淨成本）目標 delta
+trend_ma_days = 200       # 近月 TX > N 日均線才進場（含當日）
+premium_budget = 0.02
+take_profit_mult = 2.0
+stop_value_frac = 0.5

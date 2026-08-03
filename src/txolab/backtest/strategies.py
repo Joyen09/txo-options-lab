@@ -1,4 +1,4 @@
-"""四個基準策略（SPEC M6 三賣方 + 2026-07-31 新增 B1 買方）——驗證機制，不是找聖杯。
+"""基準策略（SPEC M6 三賣方 + 2026-07-31 pre-registered 買方 B1/B2/B3）。
 
 共同紀律：一次一組部位、空手才進場、delta 選檔（用當日 smile IV 反推）、
 到期前 force_close_dte 日一律強制平倉（結算週不賭）。
@@ -8,7 +8,8 @@
 - vertical_spread：賣出 put 信用價差（賣 ~0.25Δ put + 買 ~0.10Δ put 保險）
 - iron_condor：call/put 兩邊各一組信用價差（賣 ±0.20Δ、買 ±0.10Δ）
 - short_strangle：裸賣 ±0.25Δ——純賣方對照組，另加 delta 停損
-- long_strangle_low_iv：IV rank 低檔買 ±0.25Δ 雙邊——買方基準（B1）
+- long_strangle_low_iv：IV rank 低檔買 ±0.25Δ 雙邊（B1；同類別 2% sizing = B2）
+- bull_call_spread_trend：200 日均線之上買 call 債務價差（B3）
 """
 from __future__ import annotations
 
@@ -32,10 +33,10 @@ def _strike_by_delta(sm: Smile, cp: str, target: float, r: float) -> float | Non
 
 def _wing_by_delta(sm: Smile, cp: str, short_strike: float, target: float,
                    r: float) -> float | None:
-    """保險腳：在短腳「更價外側」找 delta 最接近 target 的履約價。
+    """在指定腳「更價外側」找 delta 最接近 target 的履約價。
 
-    delta 制翼寬會隨指數水準與 IV 自動縮放——固定點數在指數翻倍後
-    會退化成貼著短腳的無效保險（2026-07-31 結構修正，見 backtest.toml）。
+    delta 制會隨指數水準與 IV 自動縮放——固定點數在指數翻倍後
+    會退化成貼著短腳的無效結構（2026-07-31 結構修正，見 backtest.toml）。
     """
     direction = 1.0 if cp == "C" else -1.0
     best: tuple[float, float] | None = None
@@ -124,13 +125,16 @@ class LongStrangleLowIV(Strategy):
     name, kind = "long_strangle_low_iv", "debit"
 
     def __init__(self, buy_delta: float, iv_rank_max: float, iv_rank_window: int,
-                 premium_budget: float, take_profit_mult: float, stop_value_frac: float):
+                 premium_budget: float, take_profit_mult: float, stop_value_frac: float,
+                 name: str | None = None):
         self.buy_delta = buy_delta
         self.iv_rank_max = iv_rank_max
         self.iv_rank_window = iv_rank_window
         self.premium_budget = premium_budget
         self.take_profit_mult = take_profit_mult
         self.stop_value_frac = stop_value_frac
+        if name is not None:  # B2 沿用本類別、僅 sizing 不同，用名字區分報告
+            self.name = name
 
     def entry(self, sl: ExpirySlice, r: float) -> EntrySignal | None:
         sm = build_smile_cached(sl, r)
@@ -140,4 +144,35 @@ class LongStrangleLowIV(Strategy):
             return None
         return EntrySignal(
             legs=(Leg(sl.expiry_code, lc, "C", +1), Leg(sl.expiry_code, lp, "P", +1)),
+            expiry=sl.expiry, kind=self.kind)
+
+
+class BullCallSpread(Strategy):
+    """B3 買方基準（2026-07-31 pre-registered，門檻與警語見 backtest.toml）。
+
+    趨勢過濾的 call 債務價差：近月 TX > N 日均線時，買 0.40Δ call、
+    賣更價外的 0.15Δ call 降低淨成本。淨付權利金 = 最大虧損，
+    期交所買權多頭價差（買方履約價較低、同到期）免保證金。
+    """
+    name, kind = "bull_call_spread_trend", "debit"
+
+    def __init__(self, long_delta: float, short_delta: float, trend_ma_days: int,
+                 premium_budget: float, take_profit_mult: float, stop_value_frac: float):
+        self.long_delta = long_delta
+        self.short_delta = short_delta
+        self.trend_ma_days = trend_ma_days
+        self.premium_budget = premium_budget
+        self.take_profit_mult = take_profit_mult
+        self.stop_value_frac = stop_value_frac
+
+    def entry(self, sl: ExpirySlice, r: float) -> EntrySignal | None:
+        sm = build_smile_cached(sl, r)
+        lc = _strike_by_delta(sm, "C", self.long_delta, r)
+        if lc is None:
+            return None
+        sc = _wing_by_delta(sm, "C", lc, self.short_delta, r)  # 更價外側的賣出腳
+        if sc is None:
+            return None
+        return EntrySignal(
+            legs=(Leg(sl.expiry_code, lc, "C", +1), Leg(sl.expiry_code, sc, "C", -1)),
             expiry=sl.expiry, kind=self.kind)
