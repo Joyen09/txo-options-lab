@@ -7,6 +7,7 @@ import pytest
 
 from txolab.backtest.criteria import INITIAL_EQUITY, evaluate
 from txolab.backtest.engine import EngineConfig, _fill, run_backtest
+from txolab.backtest.regime import regime_stats
 from txolab.backtest.strategies import IronCondor, ShortStrangle, VerticalSpread
 from txolab.data.parser import FuturesRow, OptionRow
 from txolab.data.store import Store
@@ -96,7 +97,7 @@ def test_strangle_theta_decay_and_force_close(tmp_path):
     t = res.trades[0]
     assert t.reason == "expiry_week" and t.open_date == dt.date(2026, 7, 20)
     assert t.close_date == dt.date(2026, 8, 17)
-    assert t.net_twd > 0                     # 盤整市：收足時間價值，扣成本後仍貺
+    assert t.net_twd > 0                     # 盤整市：收足時間價值，扣成本後仍賺
     assert t.costs_twd > 0
     assert res.peak_utilization <= 0.35      # 進場口數以佔用上限決定
     assert res.equity_curve[-1][1] == INITIAL_EQUITY + t.net_twd
@@ -148,7 +149,7 @@ def test_backtest_is_bit_identical_on_rerun(tmp_path):
 
 
 def test_end_close_falls_back_when_last_day_unusable(tmp_path):
-    """最後一天只有選擇權、沒有 TX（timer 搜先於期交所上架的真實情境）——
+    """最後一天只有選擇權、沒有 TX（timer 搶先於期交所上架的真實情境）——
     期末平倉要往回退到最後一個可評價日，不可炸掉。"""
     with Store(tmp_path / "t.sqlite") as store:
         _insert_day(store, dt.date(2026, 7, 20), 22000.0, 0.20)
@@ -257,3 +258,34 @@ def test_double_slippage_hurts(tmp_path):
         r1 = run_backtest(store, strat, _cfg(1))
         r2 = run_backtest(store, strat, _cfg(2))
     assert r2.total_net < r1.total_net       # 滑價加倍 → 淨損益必然變差
+
+
+# ---- 市況基準（regime）：判斷樣本對做多策略有多友善 ----
+
+def test_regime_stats_monotonic_uptrend():
+    """單調上升：報酬為正、回撤 0、滿窗口後每日都在均線之上。"""
+    series = [(dt.date(2026, 1, 1) + dt.timedelta(days=i), 20000.0 + 100 * i)
+              for i in range(10)]
+    st = regime_stats(series, ma_days=3)
+    assert st.n_days == 10
+    assert st.total_return == pytest.approx(20900 / 20000 - 1)
+    assert st.max_drawdown == 0.0
+    assert st.ma_defined_days == 8
+    assert st.days_above_ma == 8 and st.share_above_ma == 1.0
+
+
+def test_regime_stats_drawdown_and_downtrend():
+    """先漲後崩：MDD 取峰值到谷底；崩跌段落在均線之下，佔比 < 1。"""
+    px = [20000.0, 22000.0, 24000.0, 23000.0, 18000.0, 16000.0]
+    series = [(dt.date(2026, 1, 1) + dt.timedelta(days=i), p)
+              for i, p in enumerate(px)]
+    st = regime_stats(series, ma_days=3)
+    assert st.max_drawdown == pytest.approx((24000 - 16000) / 24000)
+    assert st.total_return == pytest.approx(16000 / 20000 - 1)
+    assert st.days_above_ma == 1          # 僅 24000 那天在 MA(3) 之上
+    assert st.share_above_ma == pytest.approx(0.25)
+
+
+def test_regime_stats_rejects_empty_series():
+    with pytest.raises(ValueError, match="指數序列為空"):
+        regime_stats([], ma_days=200)
