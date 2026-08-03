@@ -59,9 +59,16 @@ M4/M7 的通知一律沿用 Discord webhook 模式，環境變數 `DISCORD_WEBHO
 - ✅ B3 bull_call_spread_trend（2026-08-03）：39 筆 / +110,773 / 每筆 +2,840 /
   MDD 8.3% / 佔用 0% / 滑價×2 +68,369 → **五項全過 PASS**，
   本專案第一個通過 pre-registered criteria 的策略。
-  誠實標註：同一份資料第四次測試（多重測試）、樣本為 22k→40k 大多頭而
+  誠實標註：同一份資料第四次測試（多重測試）、樣本為 +154.6% 大多頭而
   200MA 閘門使其結構性做多（可能賺 beta 非 edge）、39 筆屬小樣本。
   **樣本外（2027-02-01 起評估）才是最終仲裁**；criteria 未動。
+- ✅ S1 空頭壓力測試（2026-08-03，pre-registered 後才 backfill 2021-01~2023-07）：
+  該區間指數 +15.0%、MDD 31.5%、僅 51.5% 日數在 200MA 之上（原樣本 85.3%）。
+  B3 於此區間 28 筆 / +5,615 / **每筆 +201（原樣本 +2,840，塌 93%）** / MDD 7.9%。
+  判讀：三條預寫規則皆未完全命中——照常交易、不 whipsaw、但幾乎不賺錢。
+  結論：**B3 的優勢高度條件於強多頭市況**；不受重傷但無全天候 edge。
+  依 pre-registration，S1 不撤銷也不加強已記錄的 PASS；criteria 未動。
+  （順帶更正：`backfill` 原記「期交所僅提供近三年」為誤，實測 2022 資料可取得）
 - ⬜ Phase 3 剩餘：掛牌清單回驗 active_expiries；costs.toml 稅率 verified_date
 - ⬜ Phase 6（paper trade，**僅模擬**）：前提已成立（B3 通過 criteria），
   候選僅 B3。Shioaji simulation=True 寫死；鐵律 1 不因回測結果鬆動。

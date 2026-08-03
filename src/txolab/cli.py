@@ -139,7 +139,8 @@ def backfill(start: str = typer.Argument(..., help="起日 YYYY-MM-DD"),
     """回補歷史每日行情（Phase 5 回測需要 >=1 年）。冪等：已入庫的日期自動跳過。
 
     禮貌性 rate limit 每請求間隔 3 秒，一年約 25 分鐘——建議 nohup 背景跑。
-    期交所資料下載專區僅提供近三年，更早的會抓不到。
+    可回補範圍：2026-08-03 實測 2022-06-15 仍抓得到（原本記為「僅近三年」，
+    已由實測推翻）。更早的年份未逐一驗證，抓不到會照實回報失敗。
     """
     from .data.parser import ParserError
     from .data.taifex import DownloadError
