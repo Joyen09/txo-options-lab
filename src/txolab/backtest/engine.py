@@ -8,7 +8,8 @@
   - 保證金逐日重算（指數以最近月 TX 結算價近似，期現基差誤差已記錄）；
     賣方口數以「保證金佔用 ≤ util_cap × 當時權益」決定；
     買方（debit）無保證金，口數以「權利金支出 ≤ premium_budget × 權益」決定
-  - 條件化進場：策略可設 IV rank 門檻（近月 ATM IV 逐日自算，滿窗口前不進場）
+  - 條件化進場：策略可設 IV rank 門檻與趨勢均線門檻（指標逐日自算，
+    滿窗口前不進場）
   - 結算週處理：到期前 force_close_dte 日強制平倉——引擎永不持有到期，
     因此不需要最後結算價（那要另一個資料源）
   - 無任何隨機性：同一輸入重跑 bit-identical
@@ -141,6 +142,7 @@ class Strategy:
     # ---- 條件化進場 ----
     iv_rank_max: float | None = None      # 近月 IV rank <= 此值才進場（None = 不限）
     iv_rank_window: int = 60              # rank 回看交易日數；滿窗口前不進場
+    trend_ma_days: int | None = None      # 近月 TX > N 日均線（含當日）才進場（None = 不限）
 
     def entry(self, sl: ExpirySlice, r: float) -> EntrySignal | None:
         raise NotImplementedError
@@ -169,7 +171,7 @@ def _position_margin(sig: EntrySignal, index: float, marks: dict[MarkKey, float]
     shorts = [l for l in sig.legs if l.qty < 0]
     longs = [l for l in sig.legs if l.qty > 0]
     if sig.kind == "debit":
-        return Decimal(0)  # 純買方：權利金付清即最大風險，無保證金
+        return Decimal(0)  # 純買方/債務價差：權利金付清即最大風險，無保證金
     if sig.kind == "vertical":
         return vertical_spread_margin(shorts[0].strike, longs[0].strike)
     if sig.kind == "condor":
@@ -236,6 +238,7 @@ def run_backtest(store: Store, strategy: Strategy, cfg: EngineConfig,
     cash = cfg.initial_equity
     pos: _Position | None = None
     iv_series: list[float] = []  # 近月 ATM IV 逐日序列（條件化進場的 rank 窗口）
+    px_series: list[float] = []  # 近月 TX 價格逐日序列（趨勢均線窗口）
 
     dates = [dt.date.fromisoformat(s) for s in store.trade_dates()]
     dates = [d for d in dates
@@ -271,11 +274,13 @@ def run_backtest(store: Store, strategy: Strategy, cfg: EngineConfig,
         monthly = [s for s in chain.slices if len(s.expiry_code) == 6]
         index = monthly[0].forward if monthly else chain.slices[0].forward
 
-        # ---- 0. 條件化進場的 IV rank 序列（僅有設門檻的策略需要）----
+        # ---- 0. 條件化進場的指標序列（僅有設門檻的策略需要）----
         if strategy.iv_rank_max is not None and monthly:
             a = atm_iv(build_smile_cached(monthly[0], cfg.r))
             if a is not None:
                 iv_series.append(a)
+        if strategy.trend_ma_days is not None:
+            px_series.append(index)
 
         # ---- 1. 管理在倉部位 ----
         closed_today = False
@@ -328,7 +333,7 @@ def run_backtest(store: Store, strategy: Strategy, cfg: EngineConfig,
             res.equity_curve.append((d.isoformat(), equity))
             break  # 爆倉——真實世界早被斷頭，回測到此為止
 
-        # ---- 3. 空手時評估進場（當日剛平倉則跳過；IV rank 門檻在此把關）----
+        # ---- 3. 空手時評估進場（當日剛平倉則跳過；各門檻在此把關）----
         rank_ok = True
         if strategy.iv_rank_max is not None:
             w = strategy.iv_rank_window
@@ -337,7 +342,14 @@ def run_backtest(store: Store, strategy: Strategy, cfg: EngineConfig,
             else:
                 rank = iv_rank(iv_series[-w:], iv_series[-1])
                 rank_ok = rank is not None and rank <= strategy.iv_rank_max
-        if pos is None and not closed_today and rank_ok:
+        trend_ok = True
+        if strategy.trend_ma_days is not None:
+            n = strategy.trend_ma_days
+            if len(px_series) < n:
+                trend_ok = False  # 均線暖機期不進場
+            else:
+                trend_ok = index > sum(px_series[-n:]) / n
+        if pos is None and not closed_today and rank_ok and trend_ok:
             sl = next((s for s in monthly
                        if (s.expiry - d).days >= cfg.min_entry_dte), None)
             sig = strategy.entry(sl, cfg.r) if sl is not None else None
