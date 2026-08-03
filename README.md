@@ -21,8 +21,9 @@ uv run pytest                # 全部測試需綠燈
 | `vol/` | smile / ATM IV（forward 內插）/ term structure / IV rank・percentile / 25Δ skew、事件偵測（rank 門檻・倒掛・單日跳升） | 合成 chain 還原已知 σ |
 | `notify.py` | Discord webhook（沿用 tw-stock 模式；分段、no-throw、dry-run） | 單元測試 |
 | `backtest/` | **criteria.py（pre-registered，寫死不可回改）**、逐日重放引擎（結算價±滑價、稅費全含、保證金逐日重算、到期前強制平倉、無隨機性；debit 部位、IV rank 與趨勢均線條件化進場）、三賣方基準 + 買方 B1/B2/B3 | 機制測試綠燈 |
-| `cli.py` | `txolab fetch / backfill / monitor / chain / backtest / regime / notify-test` | 冒煙測試 |
+| `cli.py` | `txolab fetch / backfill / monitor / chain / backtest / regime / paper / notify-test` | 冒煙測試 |
 | `backtest/regime.py` | 市況基準：期間指數報酬・指數 MDD・在 N 日均線之上的日數佔比（量化樣本對做多策略的友善程度） | 單元測試 |
+| `paper/` | **Phase 6 模擬交易（不含任何下單程式碼）**：sqlite 帳本（冪等、可重啟）+ 每日一步 runner，進出場規則與回測**共用同一份實作** | 與回測逐欄一致性測試 + AST 把關 |
 
 ## 在 VM 上跑（每日收盤後自動監控 → Discord）
 
@@ -81,10 +82,7 @@ curve-fitting，故判決不變。
 
 ## 接下來
 
-1. **Phase 6（paper trade，僅模擬）前提已成立**——B3 為唯一候選。
-   實作以 Shioaji `simulation=True`（寫死）記錄模擬單與每日 Discord 回報，
-   與回測同一套進出場規則，用來檢查「回測 → 實際可執行性」的落差
-   （成交價假設、流動性、盤中觸發時點）
+1. **Phase 6 第一階段已實作**（`txolab paper`，見下節）——B3 為唯一候選
 2. **樣本外才是判決**：B1/B2/B3 規則已凍結，2027-02-01 後以
    `txolab backtest --start 2026-08-01` 首次評估；在此之前不調整 B3 任何參數
 3. ~~B3 的空頭壓力測試~~ → **S1 已於 2026-08-03 完成**（見下節）：每筆期望值
@@ -92,6 +90,33 @@ curve-fitting，故判決不變。
 4. 掛牌清單回驗 active_expiries、costs.toml 稅率查證、VIX 同向性對照
 5. 可選 S2（尚未 pre-register）：2020 COVID 崩盤段。資料經實測可回補，
    但那是**另一個測試**，不得用來改動 S1 的視窗或結論
+
+## Phase 6 paper trade（2026-08-03，第一階段；**僅模擬**）
+
+```bash
+txolab paper --dry-run            # 只印報告
+txolab paper                      # 印報告並送 Discord
+```
+
+**比鐵律 1 更嚴的作法**：本專案的 `paper/` 套件**完全不含下單程式碼**——
+沒有 place_order、沒有券商交易 API、連 `simulation=True` 的下單路徑都不存在。
+模擬成交由本地帳本以行情價自行撮合。要把它變成真單不是改一個旗標，而是得重寫
+整個模組，這正是要的阻力。`tests/test_paper.py` 有一條 **AST 把關測試**，
+掃描 `paper/` 的程式碼（不看註解與 docstring），出現任何下單識別字即紅燈。
+
+**規則不分岔**：進出場判斷直接呼叫 `backtest.engine` 的 `close_reason` /
+`entry_gates_ok` / `size_lots` / `trade_legs_twd`——回測與 paper trade 共用同一份
+實作，不可能因為「各寫一份」而悄悄走鐘。回測引擎本身已重構為呼叫這些函式，
+既有測試（含 bit-identical 與逐日權益的精確斷言）全數維持綠燈。
+另有一條測試對同一份行情同時跑回測與 paper trade，**逐欄比對成交點數、稅費、
+淨損益必須完全相同**。
+
+**帳本**：`data/db/paper.sqlite`，一次一組部位（同回測紀律）、金額以 Decimal
+字串落地、同一交易日重跑不重複開平倉（timer 重試安全）、關掉重開狀態原樣還原。
+
+**這一階段的檢驗力（誠實記錄）**：日行情檔沒有 bid/ask，所以模擬成交價與回測
+**完全同源**。因此第一階段能證明的是「規則接上每日真實資料後跑得動、狀態管得住」，
+**不能**證明滑價假設在真實盤中站得住。要檢驗後者需接即時報價（唯讀），列為第二階段。
 
 ## 空頭壓力測試 S1（2026-08-03 pre-registered，**跑之前寫死**）
 
