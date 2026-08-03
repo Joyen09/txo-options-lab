@@ -211,25 +211,34 @@ def _engine_config(slippage_mult: int = 1):
 
 def _strategies(bt: dict):
     from .backtest.strategies import (
+        BullCallSpread,
         IronCondor,
         LongStrangleLowIV,
         ShortStrangle,
         VerticalSpread,
     )
     v, c, s = bt["vertical_spread"], bt["iron_condor"], bt["short_strangle"]
-    b = bt["long_strangle_low_iv"]
+    b1 = bt["long_strangle_low_iv"]
+    b2 = bt["long_strangle_low_iv_2pct"]
+    b3 = bt["bull_call_spread_trend"]
     return [
         VerticalSpread(v["short_delta"], v["wing_delta"], v["stop_credit_mult"]),
         IronCondor(c["short_delta"], c["wing_delta"], c["stop_credit_mult"]),
         ShortStrangle(s["short_delta"], s["stop_credit_mult"], s["stop_abs_delta"]),
-        LongStrangleLowIV(b["buy_delta"], b["iv_rank_max"], b["iv_rank_window"],
-                          b["premium_budget"], b["take_profit_mult"], b["stop_value_frac"]),
+        LongStrangleLowIV(b1["buy_delta"], b1["iv_rank_max"], b1["iv_rank_window"],
+                          b1["premium_budget"], b1["take_profit_mult"], b1["stop_value_frac"]),
+        LongStrangleLowIV(b2["buy_delta"], b2["iv_rank_max"], b2["iv_rank_window"],
+                          b2["premium_budget"], b2["take_profit_mult"], b2["stop_value_frac"],
+                          name="long_strangle_low_iv_2pct"),
+        BullCallSpread(b3["long_delta"], b3["short_delta"], b3["trend_ma_days"],
+                       b3["premium_budget"], b3["take_profit_mult"], b3["stop_value_frac"]),
     ]
 
 
 @app.command()
 def backtest(strategy: str = typer.Option(
-        "all", help="all / vertical_spread / iron_condor / short_strangle / long_strangle_low_iv"),
+        "all", help="all / vertical_spread / iron_condor / short_strangle / "
+                    "long_strangle_low_iv / long_strangle_low_iv_2pct / bull_call_spread_trend"),
              start: str = typer.Option(None, help="起日 YYYY-MM-DD"),
              end: str = typer.Option(None, help="迄日 YYYY-MM-DD")):
     """跑基準策略回測 + 滑價×2 敏感度，輸出 criteria PASS/FAIL 報告。
