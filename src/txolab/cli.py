@@ -336,6 +336,39 @@ def regime(start: str = typer.Option(None, help="起日 YYYY-MM-DD"),
     console.print(t)
 
 
+@app.command()
+def paper(date: str = typer.Option(None, help="交易日 YYYY-MM-DD（預設 DB 最新日）"),
+          strategy: str = typer.Option("bull_call_spread_trend", help="模擬用策略"),
+          dry_run: bool = typer.Option(False, "--dry-run", help="只印報告不送 Discord")):
+    """Phase 6 模擬交易一日（**僅模擬，本專案不含任何下單程式碼**）。
+
+    進出場規則與回測共用同一份實作（backtest.engine 的 close_reason /
+    entry_gates_ok / size_lots），成交價沿用「結算價 ± 滑價」假設。
+    帳本存 data/db/paper.sqlite；同一交易日重跑不會重複開平倉。
+    """
+    from .backtest.criteria import INITIAL_EQUITY
+    from .paper.ledger import PaperLedger
+    from .paper.runner import format_report, run_paper_day
+    _load_env()
+    cfg, bt = _engine_config(1)
+    strat = next((s for s in _strategies(bt) if s.name == strategy), None)
+    if strat is None:
+        console.print(f"[red]未知策略: {strategy}[/red]")
+        raise typer.Exit(1)
+    d = dt.date.fromisoformat(date) if date else None
+    with Store(DB_PATH) as store, \
+            PaperLedger(DB_PATH.parent / "paper.sqlite", INITIAL_EQUITY) as ledger:
+        day = run_paper_day(store, ledger, strat, cfg, d)
+    msg = format_report(day, strat.name)
+    console.print(msg)
+    if not dry_run:
+        n = DiscordNotifier()
+        if n.enabled:
+            n.send(msg)
+        else:
+            console.print("[yellow]DISCORD_WEBHOOK_URL 未設定——只印不送[/yellow]")
+
+
 @app.command("notify-test")
 def notify_test():
     """送一則測試訊息到 Discord webhook（驗證 .env 設定）。"""
