@@ -241,7 +241,7 @@ def backtest(strategy: str = typer.Option(
                     "long_strangle_low_iv / long_strangle_low_iv_2pct / bull_call_spread_trend"),
              start: str = typer.Option(None, help="起日 YYYY-MM-DD"),
              end: str = typer.Option(None, help="迄日 YYYY-MM-DD")):
-    """跑基準策略回測 + 滑價×2 敗感度，輸出 criteria PASS/FAIL 報告。
+    """跑基準策略回測 + 滑價×2 敏感度，輸出 criteria PASS/FAIL 報告。
 
     trade log 存 data/db/backtest_<策略>.csv；同一輸入重跑結果 bit-identical。
     """
@@ -265,7 +265,7 @@ def backtest(strategy: str = typer.Option(
         for strat in strategies:
             console.print(f"[dim]{strat.name}: 回測中（正常滑價）…[/dim]")
             res = run_backtest(store, strat, cfg1, d0, d1)
-            console.print(f"[dim]{strat.name}: 滑價×2 敗感度…[/dim]")
+            console.print(f"[dim]{strat.name}: 滑價×2 敏感度…[/dim]")
             res2x = run_backtest(store, strat, cfg2, d0, d1)
             report = evaluate(strat.name, res.n_closed, res.avg_net,
                               res.max_drawdown, res.peak_utilization,
