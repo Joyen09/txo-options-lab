@@ -241,7 +241,7 @@ def backtest(strategy: str = typer.Option(
                     "long_strangle_low_iv / long_strangle_low_iv_2pct / bull_call_spread_trend"),
              start: str = typer.Option(None, help="起日 YYYY-MM-DD"),
              end: str = typer.Option(None, help="迄日 YYYY-MM-DD")):
-    """跑基準策略回測 + 滑價×2 敏感度，輸出 criteria PASS/FAIL 報告。
+    """跑基準策略回測 + 滑價×2 敗感度，輸出 criteria PASS/FAIL 報告。
 
     trade log 存 data/db/backtest_<策略>.csv；同一輸入重跑結果 bit-identical。
     """
@@ -265,7 +265,7 @@ def backtest(strategy: str = typer.Option(
         for strat in strategies:
             console.print(f"[dim]{strat.name}: 回測中（正常滑價）…[/dim]")
             res = run_backtest(store, strat, cfg1, d0, d1)
-            console.print(f"[dim]{strat.name}: 滑價×2 敏感度…[/dim]")
+            console.print(f"[dim]{strat.name}: 滑價×2 敗感度…[/dim]")
             res2x = run_backtest(store, strat, cfg2, d0, d1)
             report = evaluate(strat.name, res.n_closed, res.avg_net,
                               res.max_drawdown, res.peak_utilization,
@@ -303,6 +303,36 @@ def backtest(strategy: str = typer.Option(
                                 f"{t.entry_credit_points:.1f}", f"{t.exit_debit_points:.1f}",
                                 f"{t.costs_twd:.0f}", f"{t.net_twd:.0f}"])
             console.print(f"  trade log → {out}\n")
+
+
+@app.command()
+def regime(start: str = typer.Option(None, help="起日 YYYY-MM-DD"),
+           end: str = typer.Option(None, help="迄日 YYYY-MM-DD"),
+           ma_days: int = typer.Option(200, help="趨勢均線日數（對齊 B3 的閘門）")):
+    """市況基準：期間指數報酬・最大回撤・在均線之上的日數佔比。
+
+    用來判斷回測期間對做多策略有多友善——策略報酬要跟這個比才有意義。
+    指數口徑與回測引擎相同（近月 TX 結算價 forward）。
+    """
+    from .backtest.regime import index_series, regime_stats
+    d0 = dt.date.fromisoformat(start) if start else None
+    d1 = dt.date.fromisoformat(end) if end else None
+    with Store(DB_PATH) as store:
+        series = index_series(store, d0, d1)
+    if not series:
+        console.print("[red]該期間沒有可用行情——先 backfill[/red]")
+        raise typer.Exit(1)
+    st = regime_stats(series, ma_days)
+    t = Table(title=f"市況基準 {series[0][0]} ~ {series[-1][0]}")
+    t.add_column("項目")
+    t.add_column("值", justify="right")
+    t.add_row("交易日數", f"{st.n_days}")
+    t.add_row("期初 / 期末指數", f"{st.first_index:,.0f} → {st.last_index:,.0f}")
+    t.add_row("期間指數報酬", f"{st.total_return:+.1%}")
+    t.add_row("指數最大回撤", f"{st.max_drawdown:.1%}")
+    t.add_row(f"在 {st.ma_days} 日均線之上",
+              f"{st.days_above_ma}/{st.ma_defined_days} 日（{st.share_above_ma:.1%}）")
+    console.print(t)
 
 
 @app.command("notify-test")
