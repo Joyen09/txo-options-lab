@@ -17,6 +17,8 @@ EnvironmentFile=-/home/YOUR_USER/txo/.env
 # 先抓當日行情（下載+驗證+落地），成功才跑監控；失敗時 systemd 會記錄非零退出
 ExecStart=/home/YOUR_USER/txo/.venv/bin/txolab fetch
 ExecStart=/home/YOUR_USER/txo/.venv/bin/txolab monitor
+# Phase 6 模擬交易（僅模擬、無下單路徑）；同一交易日重跑不會重複開平倉
+ExecStart=/home/YOUR_USER/txo/.venv/bin/txolab paper
 
 MemoryMax=400M
 Nice=10
