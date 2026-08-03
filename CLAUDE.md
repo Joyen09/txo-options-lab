@@ -50,7 +50,9 @@ M4/M7 的通知一律沿用 Discord webhook 模式，環境變數 `DISCORD_WEBHO
   iron_condor −41.4萬/MDD 47.2%、short_strangle −20.5萬/佔用 32%。
   結論照實記錄：無條件月月賣租在本樣本非正期望值，皆不進 Phase 6。
   （過程中做過一次性結構修正並記錄於 config/backtest.toml：delta 翼寬、25% sizing）
-- ⬜ B1 買方基準 long_strangle_low_iv（2026-07-31 pre-registered，門檻寫死於
-  backtest.toml）：待 VM 跑一次、結果照實記錄
+- ✅ B1 買方基準 long_strangle_low_iv（2026-07-31 pre-registered）：
+  **5 項過 4 項但 FAIL**——+47.0萬 / 每筆 +15,672 / 滑價×2 +44.7萬 / 佔用 0%，
+  唯 MDD 26.5% > 20%（2024-09~2025-02 連續 8 筆停損 −25.0萬）。
+  第一個正期望值策略，但規則就是規則，不進 Phase 6；criteria 未動。
 - ⬜ Phase 3 剩餘：掛牌清單回驗 active_expiries；costs.toml 稅率 verified_date
-- ⬜ Phase 6（paper trade，僅模擬；前提 = 至少一策略通過 criteria）
+- ⬜ Phase 6（paper trade，僅模擬）：前提（至少一策略通過 criteria）**尚未成立**
