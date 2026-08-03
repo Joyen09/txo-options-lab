@@ -15,6 +15,9 @@
   - 無任何隨機性：同一輸入重跑 bit-identical
 
 金錢一律 Decimal；定價/Greeks 用 float（CLAUDE.md 鐵律 4）。
+
+此檔的 close_reason / entry_gates_ok / size_lots / trade_legs_twd 同時是
+**paper trade（paper/runner.py）的唯一規則來源**——兩邊不可各寫一份。
 """
 from __future__ import annotations
 
@@ -204,7 +207,7 @@ def _leg_value(legs: tuple[Leg, ...], marks: dict[MarkKey, float]) -> float | No
     return total
 
 
-def _short_deltas(pos: _Position, chain: Chain, r: float) -> list[float]:
+def _short_deltas(legs: tuple[Leg, ...], chain: Chain, r: float) -> list[float]:
     """賣方腳的當前 delta（用當日該腳結算價反推 IV）。算不出來的腳略過。
 
     只解「賣方腳本身」的 IV（每天 2 次 Brent 求解），不建整條 smile
@@ -212,13 +215,13 @@ def _short_deltas(pos: _Position, chain: Chain, r: float) -> list[float]:
     輸入與解法跟 smile 版完全相同，結果 bit-identical。
     """
     sl = next((s for s in chain.slices
-               if s.expiry_code == pos.signal.legs[0].expiry_code), None)
+               if s.expiry_code == legs[0].expiry_code), None)
     if sl is None:
         return []
     price_by = {(row.strike, row.cp): (row.settlement if row.settlement else row.close)
                 for row in sl.rows}
     out = []
-    for leg in pos.signal.legs:
+    for leg in legs:
         if leg.qty >= 0:
             continue
         price = price_by.get((leg.strike, leg.cp))
@@ -229,6 +232,96 @@ def _short_deltas(pos: _Position, chain: Chain, r: float) -> list[float]:
             continue
         out.append(greeks(leg.cp, sl.forward, leg.strike, r, res.iv, sl.t_years).delta)
     return out
+
+
+def trade_legs_twd(legs: tuple[Leg, ...], lots: int, marks: dict[MarkKey, float],
+                   closing: bool, cfg: EngineConfig) -> tuple[float, Decimal, Decimal]:
+    """成交全部腳：回傳（每口淨點數流入, 現金流 TWD, 稅費 TWD）。closing 時方向反轉。
+
+    **回測與 paper trade 共用同一份成交與成本計算。**
+    """
+    points_in = 0.0
+    costs = Decimal(0)
+    for leg in legs:
+        qty = -leg.qty if closing else leg.qty
+        mark = marks[(leg.expiry_code, leg.strike, leg.cp)]
+        px = _fill(mark, qty, cfg.slippage_ticks)
+        points_in += -qty * px  # 賣出收權利金、買進付權利金
+        costs += transaction_cost(px, cfg.tax_rate, cfg.fee_per_lot, lots)
+    cash_flow = Decimal(str(round(points_in, 4))) * MULTIPLIER * lots - costs
+    return points_in, cash_flow, costs
+
+
+def close_reason(legs: tuple[Leg, ...], expiry: dt.date, entry_credit_points: float,
+                 trade_date: dt.date, chain: Chain, marks: dict[MarkKey, float],
+                 strategy: Strategy, cfg: EngineConfig) -> str | None:
+    """今天該不該平倉，以及理由；None = 續抱。**回測與 paper trade 共用同一份規則。**
+
+    順序即優先序：結算週強制平倉 → 賣方停損（回補成本／delta）→ 買方停利／停損。
+    任一腳無法評價（value is None）時只有「結算週」會觸發，其餘一律續抱。
+    """
+    if (expiry - trade_date).days <= cfg.force_close_dte:
+        return "expiry_week"
+    value = _leg_value(legs, marks)
+    if value is None:
+        return None
+    if entry_credit_points > 0:  # 收租部位
+        if -value >= entry_credit_points * strategy.stop_credit_mult:
+            return "stop"
+        if strategy.stop_abs_delta is not None:
+            deltas = _short_deltas(legs, chain, cfg.r)
+            if deltas and max(abs(x) for x in deltas) >= strategy.stop_abs_delta:
+                return "delta_stop"
+    elif entry_credit_points < 0:  # 買方（debit）部位
+        debit = -entry_credit_points
+        if (strategy.take_profit_mult is not None
+                and value >= debit * strategy.take_profit_mult):
+            return "take_profit"
+        if (strategy.stop_value_frac is not None
+                and value <= debit * strategy.stop_value_frac):
+            return "stop"
+    return None
+
+
+def entry_gates_ok(strategy: Strategy, iv_series: list[float],
+                   px_series: list[float], index: float) -> bool:
+    """IV rank 與趨勢均線閘門；窗口未滿一律不進場。**回測與 paper trade 共用。**"""
+    if strategy.iv_rank_max is not None:
+        w = strategy.iv_rank_window
+        if len(iv_series) < w:
+            return False  # 滿窗口前不進場（rank 無意義）
+        rank = iv_rank(iv_series[-w:], iv_series[-1])
+        if rank is None or rank > strategy.iv_rank_max:
+            return False
+    if strategy.trend_ma_days is not None:
+        n = strategy.trend_ma_days
+        if len(px_series) < n:
+            return False  # 均線暖機期不進場
+        if index <= sum(px_series[-n:]) / n:
+            return False
+    return True
+
+
+def size_lots(strategy: Strategy, sig: EntrySignal, equity: Decimal, index: float,
+              marks: dict[MarkKey, float], cfg: EngineConfig,
+              ) -> tuple[int, Decimal]:
+    """回傳（口數, 每口保證金）。買方走權利金預算制、賣方走保證金佔用制。
+
+    口數 < 1 代表「這筆進場開不起來」——呼叫端計入 skipped。
+    **回測與 paper trade 共用同一份 sizing。**
+    """
+    if strategy.premium_budget is not None:  # 買方：權利金預算制
+        cost = _leg_value(sig.legs, marks)   # 每口權利金支出（點，正值）
+        if cost is None or cost <= 0:
+            return 0, Decimal(0)
+        budget = equity * Decimal(str(strategy.premium_budget))
+        lots = min(int(budget / (Decimal(str(round(cost, 4))) * MULTIPLIER)), cfg.max_lots)
+        return lots, Decimal(0)
+    m = _position_margin(sig, index, marks, cfg)  # 賣方：保證金佔用制
+    if m is None or m <= 0:
+        return 0, Decimal(0)
+    budget = equity * Decimal(str(cfg.util_cap))
+    return min(int(budget / m), cfg.max_lots), m
 
 
 def run_backtest(store: Store, strategy: Strategy, cfg: EngineConfig,
@@ -244,20 +337,9 @@ def run_backtest(store: Store, strategy: Strategy, cfg: EngineConfig,
     dates = [d for d in dates
              if (start is None or d >= start) and (end is None or d <= end)]
 
-    def trade_legs_twd(legs: tuple[Leg, ...], lots: int,
-                       marks: dict[MarkKey, float], closing: bool,
-                       ) -> tuple[float, Decimal, Decimal]:
-        """成交全部腳：回傳（每口淨點數流入, 現金流 TWD, 稅費 TWD）。closing 時方向反轉。"""
-        points_in = 0.0
-        costs = Decimal(0)
-        for leg in legs:
-            qty = -leg.qty if closing else leg.qty
-            mark = marks[(leg.expiry_code, leg.strike, leg.cp)]
-            px = _fill(mark, qty, cfg.slippage_ticks)
-            points_in += -qty * px  # 賣出收權利金、買進付權利金
-            costs += transaction_cost(px, cfg.tax_rate, cfg.fee_per_lot, lots)
-        cash_flow = Decimal(str(round(points_in, 4))) * MULTIPLIER * lots - costs
-        return points_in, cash_flow, costs
+    def trade_legs(legs: tuple[Leg, ...], lots: int, marks: dict[MarkKey, float],
+                   closing: bool) -> tuple[float, Decimal, Decimal]:
+        return trade_legs_twd(legs, lots, marks, closing, cfg)
 
     for d in dates:
         options = store.options_on(d)
@@ -285,29 +367,11 @@ def run_backtest(store: Store, strategy: Strategy, cfg: EngineConfig,
         # ---- 1. 管理在倉部位 ----
         closed_today = False
         if pos is not None:
-            reason: str | None = None
-            dte = (pos.signal.expiry - d).days
+            reason = close_reason(pos.signal.legs, pos.signal.expiry,
+                                  pos.entry_credit_points, d, chain, marks, strategy, cfg)
             value = _leg_value(pos.signal.legs, marks)
-            if dte <= cfg.force_close_dte:
-                reason = "expiry_week"
-            elif value is not None and pos.entry_credit_points > 0:  # 收租部位
-                buyback = -value  # 回補成本（點）
-                if buyback >= pos.entry_credit_points * strategy.stop_credit_mult:
-                    reason = "stop"
-                elif strategy.stop_abs_delta is not None:
-                    deltas = _short_deltas(pos, chain, cfg.r)
-                    if deltas and max(abs(x) for x in deltas) >= strategy.stop_abs_delta:
-                        reason = "delta_stop"
-            elif value is not None and pos.entry_credit_points < 0:  # 買方（debit）部位
-                debit = -pos.entry_credit_points  # 進場付出的權利金（點）
-                if (strategy.take_profit_mult is not None
-                        and value >= debit * strategy.take_profit_mult):
-                    reason = "take_profit"
-                elif (strategy.stop_value_frac is not None
-                        and value <= debit * strategy.stop_value_frac):
-                    reason = "stop"
             if reason is not None and value is not None:
-                exit_points, cash_flow, exit_costs = trade_legs_twd(
+                exit_points, cash_flow, exit_costs = trade_legs(
                     pos.signal.legs, pos.lots, marks, closing=True)
                 cash += cash_flow
                 total_costs = pos.entry_costs + exit_costs
@@ -334,44 +398,17 @@ def run_backtest(store: Store, strategy: Strategy, cfg: EngineConfig,
             break  # 爆倉——真實世界早被斷頭，回測到此為止
 
         # ---- 3. 空手時評估進場（當日剛平倉則跳過；各門檻在此把關）----
-        rank_ok = True
-        if strategy.iv_rank_max is not None:
-            w = strategy.iv_rank_window
-            if len(iv_series) < w:
-                rank_ok = False  # 滿窗口前不進場（rank 無意義）
-            else:
-                rank = iv_rank(iv_series[-w:], iv_series[-1])
-                rank_ok = rank is not None and rank <= strategy.iv_rank_max
-        trend_ok = True
-        if strategy.trend_ma_days is not None:
-            n = strategy.trend_ma_days
-            if len(px_series) < n:
-                trend_ok = False  # 均線暖機期不進場
-            else:
-                trend_ok = index > sum(px_series[-n:]) / n
-        if pos is None and not closed_today and rank_ok and trend_ok:
+        if (pos is None and not closed_today
+                and entry_gates_ok(strategy, iv_series, px_series, index)):
             sl = next((s for s in monthly
                        if (s.expiry - d).days >= cfg.min_entry_dte), None)
             sig = strategy.entry(sl, cfg.r) if sl is not None else None
             if sig is not None:
-                lots = 0
-                margin_per_lot = Decimal(0)
-                if strategy.premium_budget is not None:  # 買方：權利金預算制
-                    cost = _leg_value(sig.legs, marks)   # 每口權利金支出（點，正值）
-                    if cost is not None and cost > 0:
-                        budget = equity * Decimal(str(strategy.premium_budget))
-                        lots = min(int(budget / (Decimal(str(round(cost, 4))) * MULTIPLIER)),
-                                   cfg.max_lots)
-                else:  # 賣方：保證金佔用制
-                    m = _position_margin(sig, index, marks, cfg)
-                    if m is not None and m > 0:
-                        margin_per_lot = m
-                        budget = equity * Decimal(str(cfg.util_cap))
-                        lots = min(int(budget / m), cfg.max_lots)
+                lots, margin_per_lot = size_lots(strategy, sig, equity, index, marks, cfg)
                 if lots < 1:
                     res.skipped_entries += 1
                 else:
-                    entry_points, cash_flow, entry_costs = trade_legs_twd(
+                    entry_points, cash_flow, entry_costs = trade_legs(
                         sig.legs, lots, marks, closing=False)
                     cash += cash_flow
                     pos = _Position(signal=sig, lots=lots, open_date=d,
@@ -408,7 +445,7 @@ def run_backtest(store: Store, strategy: Strategy, cfg: EngineConfig,
             marks = _marks(chain)
             if _leg_value(pos.signal.legs, marks) is None:
                 continue
-            exit_points, cash_flow, exit_costs = trade_legs_twd(
+            exit_points, cash_flow, exit_costs = trade_legs(
                 pos.signal.legs, pos.lots, marks, closing=True)
             cash += cash_flow
             total_costs = pos.entry_costs + exit_costs
